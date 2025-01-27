@@ -1,0 +1,6 @@
+{
+  "tarfile": {
+    "class": "File",
+    "path": "resources/hello.tar"
+  }
+}
