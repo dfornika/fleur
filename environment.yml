@@ -1,0 +1,5 @@
+name: fleur
+channels:
+  - conda-forge
+dependencies:
+  - schema-salad=8.8.20241206093842

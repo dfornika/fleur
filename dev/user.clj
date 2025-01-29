@@ -6,10 +6,30 @@
             [clojure.tools.trace :as trace]
             [clojure.data.json :as json]
             [clj-yaml.core :as yaml]
-            [fleur.command-line-tool :as tool]))
+            [portal.api :as p]
+            [fleur.command-line-tool :as tool]
+            [fleur.schema-salad :as schema-salad]))
+
+(defn tap-> 
+  "Tap a value and return it, allowing it to flow through a pipeline."
+  [x]
+  (tap> x)
+  x)
+
+(comment
+  ;; Portal setup 
+  (def portal (p/open))
+  (add-tap #'p/submit)
+
+  ;; Portal tear-down
+  (p/clear)
+  (p/close)
+  )
 
 (def hello-world-tool-file
   (io/resource "hello_world.cwl"))
+
+(schema-salad/preprocess (.getPath hello-world-tool-file))
 
 (def hello-world-job-file
   (io/resource "hello_world-job.json"))
@@ -21,8 +41,18 @@
 
 (def hello-world-tool
   (-> hello-world-tool-file
-      slurp
-      yaml/parse-string))
+      .getPath
+      schema-salad/preprocess))
+
+(comment
+  (-> hello-world-tool
+      tool/assoc-inputs-with-default-values
+      (tool/assoc-inputs-with-values hello-world-job)
+      tool/build-command-line
+      tool/execute
+      pprint
+      )
+  )
 
 (def javac-tool-file
   (io/resource "javac.cwl"))
@@ -40,15 +70,16 @@
       slurp
       (json/read-str :key-fn keyword)))
 
-
 (comment
-  (-> hello-world-tool
+  (-> javac-tool
       tool/assoc-inputs-with-default-values
-      (tool/assoc-inputs-with-values hello-world-job)
+      (tool/assoc-inputs-with-values javac-job)
       tool/build-command-line
-      tool/execute
+      #_tool/execute
+      pprint
       )
   )
+
 
 (def common-fields
   [:id

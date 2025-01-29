@@ -4,16 +4,15 @@
 
 
 (defn assoc-input-with-value
-  ""
+  "Associate a value with a specific input in the tool."
   [tool [input-key input]]
   (assoc-in tool [:inputs input-key :value] input))
   
 
 (defn assoc-inputs-with-values
-  ""
+  "Associate provided input values with the tool's inputs."
   [command-line-tool provided-inputs]
-  (let []
-    (reduce assoc-input-with-value command-line-tool provided-inputs)))
+  (reduce assoc-input-with-value command-line-tool provided-inputs))
 
 
 (defn assoc-default-if-exists
@@ -36,15 +35,14 @@
 
 
 (defn input-sorter
-  ""
-  []
-  identity)
+  "Sort inputs by their :position in the :inputBinding."
+  [[_ input]]
+  (get-in input [:inputBinding :position] 0)) ; Default to 0 if no position is specified
 
 
 (defn sort-inputs
-  ""
+  "Sort the tool's inputs by their :position."
   [inputs]
-  (tap> inputs)
   (sort-by input-sorter inputs))
 
 

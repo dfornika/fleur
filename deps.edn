@@ -4,6 +4,7 @@
         clj-commons/clj-yaml {:mvn/version "1.0.29"}}
  :aliases
  {:dev {:extra-paths ["dev"]
-        :extra-deps {org.clojure/tools.trace {:mvn/version "0.8.0"}}}
+        :extra-deps {org.clojure/tools.trace {:mvn/version "0.8.0"}
+                     djblue/portal {:mvn/version "0.58.5"}}}
   :build {:deps {io.github.clojure/tools.build {:git/tag "v0.10.6" :git/sha "52cf7d6"}}
           :ns-default build}}}
