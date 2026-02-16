@@ -1,4 +1,3 @@
-#!/usr/bin/env cwl-runner
 cwlVersion: v1.2
 class: CommandLineTool
 label: Example trivial wrapper for Java 9 compiler
@@ -17,3 +16,4 @@ outputs:
     type: File
     outputBinding:
       glob: "*.class"
+

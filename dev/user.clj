@@ -29,8 +29,6 @@
 (def hello-world-tool-file
   (io/resource "hello_world.cwl"))
 
-(schema-salad/preprocess (.getPath hello-world-tool-file))
-
 (def hello-world-job-file
   (io/resource "hello_world-job.json"))
 
@@ -45,12 +43,14 @@
       schema-salad/preprocess))
 
 (comment
+  (tap> hello-world-tool)
   (-> hello-world-tool
       tool/assoc-inputs-with-default-values
       (tool/assoc-inputs-with-values hello-world-job)
       tool/build-command-line
+      tap->
       tool/execute
-      pprint
+      tap->
       )
   )
 
@@ -62,8 +62,10 @@
 
 (def javac-tool
   (-> javac-tool-file
-      slurp
-      yaml/parse-string))
+      .getPath
+      schema-salad/preprocess
+      tap->
+      ))
 
 (def javac-job
   (-> javac-job-file
@@ -73,10 +75,12 @@
 (comment
   (-> javac-tool
       tool/assoc-inputs-with-default-values
+      (tap->)
       (tool/assoc-inputs-with-values javac-job)
       tool/build-command-line
-      #_tool/execute
-      pprint
+      tap->
+      tool/execute
+      tap->
       )
   )
 
