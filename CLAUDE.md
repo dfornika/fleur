@@ -15,6 +15,9 @@ The codebase is organized into these namespaces:
   JavaScript expressions (`$(...)`/`${...}`). Parameter references use a
   pure-Clojure walker; JavaScript is evaluated with Mozilla Rhino (ECMAScript
   5.1) and only when `InlineJavascriptRequirement` is in effect.
+- `fleur.runtime`: Constructs the CWL `runtime` object (`outdir`, `tmpdir`,
+  `cores`, `ram`, ...) exposed to expressions as `runtime.*`, honoring
+  `ResourceRequirement`.
 - `fleur.schema-salad`: Integration with schema-salad-tool for CWL preprocessing and validation  
 - `fleur.docker`: Docker image management utilities
 
@@ -158,8 +161,16 @@ This is the algorithm `build-command-line` implements:
   `InlineJavascriptRequirement`. `build-command-line`'s 2-arity form takes an
   `evaluation-context` (see `fleur.command-line-tool/evaluation-context`) and
   resolves `arguments`/`valueFrom`; the 1-arity form still emits them literally.
-  Runtime values (`runtime.outdir`, `runtime.tmpdir`, cores/ram, ...) are not
-  yet populated automatically — the caller supplies the `:runtime` map.
+  `execute` and `bind-outputs` are likewise context-aware, evaluating
+  `stdin`/`stdout`/`stderr` and output `glob`/`secondaryFiles`/`format`.
+- The `runtime` object is populated by `fleur.runtime/make-runtime` (outdir and
+  tmpdir are created as temp dirs unless supplied; cores/ram come from
+  `ResourceRequirement` or sensible defaults). `command-line-tool/run` ties the
+  whole pipeline together: defaults -> job values -> runtime -> context ->
+  build -> execute -> bind-outputs.
+- **Not yet done**: staging input files into the working directory, so a tool
+  run in `runtime.outdir` still needs absolute input paths; stdout/stderr are
+  captured then written to file (no streaming/binary redirection).
 - Preprocessing (`$import`/`$include`, `$graph`, identifier and type-name
   resolution) is normally done by `schema-salad-tool`; Fleur is moving toward a
   pure-Clojure preprocessing path so it can run without that external tool.
@@ -176,12 +187,15 @@ This is the algorithm `build-command-line` implements:
 - ✅ Evaluate CWL parameter references / expressions (`$(runtime.outdir)`,
   `$(inputs.x)`, `${ ... }`) via `fleur.expression` (pure-Clojure parameter
   references + Rhino JavaScript under `InlineJavascriptRequirement`), wired into
-  `build-command-line` for `arguments`/`valueFrom`. Still to do: populate the
-  `runtime.*` object automatically and evaluate expressions in the remaining
-  fields (`secondaryFiles`, `format`, output `glob`, stdin/stdout/stderr).
+  `build-command-line` (`arguments`/`valueFrom`), `execute`
+  (`stdin`/`stdout`/`stderr`), and `bind-outputs` (`glob`/`secondaryFiles`/`format`).
+- ✅ Populate the `runtime.*` object automatically (`fleur.runtime/make-runtime`).
+- ✅ `stdin`/`stdout`/`stderr` redirection (in `execute`).
+- ✅ Output file collection incl. `secondaryFiles` (suffix/`^` and expression
+  patterns) and `format`. Still to do: `loadContents`, output validation.
+- Stage input files into the working directory (so relative input paths resolve
+  when running in `runtime.outdir`).
 - Add proper error handling throughout execution pipeline
-- Implement output file collection and validation (secondaryFiles, `loadContents`)
-- `stdin`/`stdout`/`stderr` redirection
 
 ### Phase 2: Docker Integration  
 - Expand `docker.clj` to handle volume mounting for input/output files
