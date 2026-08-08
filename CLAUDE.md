@@ -40,7 +40,19 @@ clj -T:build
 ```
 
 ### Testing
-No test framework is currently configured. Tests should be added to the `test/` directory.
+Tests use `clojure.test` and run via the Cognitect test-runner:
+```bash
+# Run the whole suite
+clojure -X:test
+
+# Run a single namespace
+clojure -X:test :nses '[fleur.command-line-tool-test]'
+```
+Test files live in `test/`. Two suites exist today:
+- `fleur.command-line-tool-test`: behaviour we consider correct (should stay green).
+- `fleur.command-line-tool-known-issues-test`: characterization tests pinning
+  current buggy behaviour. Each documents the `DESIRED:` result in a comment;
+  when a bug is fixed, flip the assertion to the desired value.
 
 ## Dependencies
 
