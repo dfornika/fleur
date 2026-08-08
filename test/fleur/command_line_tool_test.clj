@@ -183,6 +183,57 @@
               :inputs {:hidden {:type "string" :value "x"}}}))))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Command line construction with expression evaluation (2-arity)
+;;; ---------------------------------------------------------------------------
+
+(deftest build-command-line-literal-without-context-test
+  (testing "without a context, expressions are emitted literally"
+    (is (= '("javac" "-d" "$(runtime.outdir)" "Hello.java")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "javac"
+              :arguments ["-d" "$(runtime.outdir)"]
+              :inputs {:src {:type "string" :value "Hello.java"
+                             :inputBinding {:position 1}}}}))))))
+
+(deftest build-command-line-parameter-reference-test
+  (testing "arguments' parameter references resolve against the context"
+    (let [tool {:baseCommand "javac"
+                :arguments ["-d" "$(runtime.outdir)"]
+                :inputs {:src {:type "File"
+                               :value {:class "File" :path "resources/Hello.java"}
+                               :inputBinding {:position 1}}}}
+          ctx (t/evaluation-context tool {:outdir "/tmp/out"})]
+      (is (= '("javac" "-d" "/tmp/out" "resources/Hello.java")
+             (:commandLine (t/build-command-line tool ctx)))))))
+
+(deftest build-command-line-value-from-test
+  (testing "an input inputBinding :valueFrom is evaluated with self = value"
+    (let [tool {:baseCommand "echo"
+                :inputs {:x {:type "string" :value "abc"
+                             :inputBinding {:position 1 :valueFrom "$(self)-suffix"}}}}
+          ctx (t/evaluation-context tool {})]
+      (is (= '("echo" "abc-suffix")
+             (:commandLine (t/build-command-line tool ctx)))))))
+
+(deftest build-command-line-inline-javascript-test
+  (testing "InlineJavascriptRequirement enables JS in expressions"
+    (let [tool {:baseCommand "echo"
+                :requirements [{:class "InlineJavascriptRequirement"}]
+                :arguments [{:valueFrom "$(inputs.n * 2)"}]
+                :inputs {:n {:type "int" :value 21}}}
+          ctx (t/evaluation-context tool {})]
+      (is (= '("echo" "42")
+             (:commandLine (t/build-command-line tool ctx))))))
+
+  (testing "without InlineJavascriptRequirement a JS expression is rejected"
+    (let [tool {:baseCommand "echo"
+                :arguments [{:valueFrom "$(inputs.n * 2)"}]
+                :inputs {:n {:type "int" :value 21}}}
+          ctx (t/evaluation-context tool {})]
+      (is (thrown? clojure.lang.ExceptionInfo (t/build-command-line tool ctx))))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Glob matching for outputs
 ;;; ---------------------------------------------------------------------------
 

@@ -8,9 +8,13 @@ Fleur is a Clojure library for running Common Workflow Language (CWL) workflows.
 
 ## Architecture
 
-The codebase is organized into three main namespaces:
+The codebase is organized into these namespaces:
 
 - `fleur.command-line-tool`: Core functionality for parsing CWL tools, binding inputs/outputs, and executing commands
+- `fleur.expression`: Evaluation of CWL parameter references (`$(...)`) and
+  JavaScript expressions (`$(...)`/`${...}`). Parameter references use a
+  pure-Clojure walker; JavaScript is evaluated with Mozilla Rhino (ECMAScript
+  5.1) and only when `InlineJavascriptRequirement` is in effect.
 - `fleur.schema-salad`: Integration with schema-salad-tool for CWL preprocessing and validation  
 - `fleur.docker`: Docker image management utilities
 
@@ -68,6 +72,8 @@ Test files live in `test/`. Two suites exist today:
 - **schema-salad**: External tool required for CWL preprocessing (installed via conda)
 - **Docker**: Required for executing tools with Docker requirements
 - **Core Clojure libraries**: data.json for JSON parsing, clj-yaml for YAML support
+- **Rhino** (`org.mozilla/rhino`): pure-Java ECMAScript engine used by
+  `fleur.expression` to evaluate CWL JavaScript expressions on the JVM
 
 ## Key Data Structures
 
@@ -147,8 +153,13 @@ This is the algorithm `build-command-line` implements:
 
 ### Runtime notes
 - Values referenced as `$(...)` / `${...}` are **parameter references /
-  expressions** (`runtime.*`, `inputs.*`, etc.) and must be evaluated before use.
-  Fleur does not evaluate these yet — they are emitted literally.
+  expressions** (`runtime.*`, `inputs.*`, etc.). `fleur.expression` evaluates
+  them: parameter references always, and full JavaScript when the tool declares
+  `InlineJavascriptRequirement`. `build-command-line`'s 2-arity form takes an
+  `evaluation-context` (see `fleur.command-line-tool/evaluation-context`) and
+  resolves `arguments`/`valueFrom`; the 1-arity form still emits them literally.
+  Runtime values (`runtime.outdir`, `runtime.tmpdir`, cores/ram, ...) are not
+  yet populated automatically — the caller supplies the `:runtime` map.
 - Preprocessing (`$import`/`$include`, `$graph`, identifier and type-name
   resolution) is normally done by `schema-salad-tool`; Fleur is moving toward a
   pure-Clojure preprocessing path so it can run without that external tool.
@@ -162,8 +173,12 @@ This is the algorithm `build-command-line` implements:
   `prefix`/`separate`/`itemSeparator` CommandLineBinding rules plus per-type
   formatting (string, number, boolean, File, Directory, array, null). The old
   `format-input-value` was replaced by `binding-tokens`.
-- Evaluate CWL parameter references / expressions (`$(runtime.outdir)`,
-  `$(inputs.x)`, `${ ... }`) — currently emitted literally.
+- ✅ Evaluate CWL parameter references / expressions (`$(runtime.outdir)`,
+  `$(inputs.x)`, `${ ... }`) via `fleur.expression` (pure-Clojure parameter
+  references + Rhino JavaScript under `InlineJavascriptRequirement`), wired into
+  `build-command-line` for `arguments`/`valueFrom`. Still to do: populate the
+  `runtime.*` object automatically and evaluate expressions in the remaining
+  fields (`secondaryFiles`, `format`, output `glob`, stdin/stdout/stderr).
 - Add proper error handling throughout execution pipeline
 - Implement output file collection and validation (secondaryFiles, `loadContents`)
 - `stdin`/`stdout`/`stderr` redirection

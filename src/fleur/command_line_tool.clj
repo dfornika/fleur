@@ -1,7 +1,8 @@
 (ns fleur.command-line-tool
   (:require [clojure.string :as str]
             [clojure.java.shell :as shell]
-            [clojure.java.io :as io]))
+            [clojure.java.io :as io]
+            [fleur.expression :as expr]))
 
 (defn assoc-input-with-value
   "Associate a value with a specific input in the tool."
@@ -91,41 +92,82 @@
       ;; string / number / everything else
       :else (emit (str value)))))
 
+(defn inline-javascript?
+  "True if the tool enables InlineJavascriptRequirement via requirements or
+   hints (supporting both the list-of-maps and map-keyed-by-class shapes)."
+  [tool]
+  (let [names (mapcat (fn [reqs]
+                        (cond
+                          (map? reqs)        (map name (keys reqs))
+                          (sequential? reqs) (keep #(some-> (:class %) name) reqs)
+                          :else              nil))
+                      [(:requirements tool) (:hints tool)])]
+    (boolean (some #{"InlineJavascriptRequirement"} names))))
+
+(defn evaluation-context
+  "Build an expression-evaluation context from a tool and a `runtime` map.
+   `:inputs` maps each input id to its current value; `:runtime` carries
+   runtime.* values (outdir, tmpdir, cores, ram, ...)."
+  [tool runtime]
+  {:inputs (into {} (map (fn [[k input]] [k (:value input)]) (:inputs tool)))
+   :runtime (or runtime {})})
+
+(defn- eval-when-context
+  "Evaluate `v` against `context` when a context is supplied; otherwise return
+   `v` unchanged (expressions are emitted literally without a context)."
+  [v context js?]
+  (if context (expr/evaluate v context {:js? js?}) v))
+
 (defn- input-binding-entry
   "Build a sortable command-line entry for an input, or nil if the input has
-   no inputBinding (such inputs are not placed on the command line)."
-  [[input-key input]]
+   no inputBinding (such inputs are not placed on the command line). When a
+   context is supplied, an inputBinding :valueFrom is evaluated with `self`
+   bound to the input's value."
+  [context js? [input-key input]]
   (let [binding (:inputBinding input)]
     (when binding
-      {:sort-key [(get binding :position 0) 1 (name input-key)]
-       :tokens (binding-tokens (input-type input) binding (:value input))})))
+      (let [value (if (and context (contains? binding :valueFrom))
+                    (expr/evaluate (:valueFrom binding)
+                                   (assoc context :self (:value input))
+                                   {:js? js?})
+                    (:value input))]
+        {:sort-key [(get binding :position 0) 1 (name input-key)]
+         :tokens (binding-tokens (input-type input) binding value)}))))
 
 (defn- argument-entry
   "Build a sortable command-line entry for a CWL `arguments` element. Plain
    strings become a single token; CommandLineBinding maps honour :position,
-   :prefix and :valueFrom (evaluated literally for now)."
-  [i arg]
+   :prefix and :valueFrom. With a context, expressions are evaluated."
+  [context js? i arg]
   (if (map? arg)
     {:sort-key [(get arg :position 0) 0 i]
-     :tokens (binding-tokens :string arg (:valueFrom arg))}
+     :tokens (binding-tokens :string arg (eval-when-context (:valueFrom arg) context js?))}
     {:sort-key [0 0 i]
-     :tokens [(str arg)]}))
+     :tokens (let [v (eval-when-context arg context js?)]
+               (if (nil? v) [] [(str v)]))}))
 
 (defn build-command-line
   "Build the command line for a tool per the CWL algorithm: collect binding
    entries from `arguments` and inputs, sort them by [position, kind, name],
-   render each to tokens, and prepend `baseCommand`."
-  [tool]
-  (let [base-command (:baseCommand tool)
-        base (cond
-               (nil? base-command)        []
-               (sequential? base-command) (vec base-command)
-               :else                      [base-command])
-        arg-entries (map-indexed argument-entry (:arguments tool))
-        input-entries (keep input-binding-entry (:inputs tool))
-        ordered (sort-by :sort-key (concat arg-entries input-entries))
-        command-line-elements (concat base (mapcat :tokens ordered))]
-    (assoc tool :commandLine command-line-elements)))
+   render each to tokens, and prepend `baseCommand`.
+
+   With the 2-arity form, `context` (see `evaluation-context`) enables
+   evaluation of parameter references / expressions in `arguments` and
+   `valueFrom`; JavaScript is used when the tool declares
+   InlineJavascriptRequirement. The 1-arity form emits expressions literally."
+  ([tool] (build-command-line tool nil))
+  ([tool context]
+   (let [js? (inline-javascript? tool)
+         base-command (:baseCommand tool)
+         base (cond
+                (nil? base-command)        []
+                (sequential? base-command) (vec base-command)
+                :else                      [base-command])
+         arg-entries (map-indexed (partial argument-entry context js?) (:arguments tool))
+         input-entries (keep (partial input-binding-entry context js?) (:inputs tool))
+         ordered (sort-by :sort-key (concat arg-entries input-entries))
+         command-line-elements (concat base (mapcat :tokens ordered))]
+     (assoc tool :commandLine command-line-elements))))
 
 (defn execute
   ""
