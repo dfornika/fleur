@@ -24,6 +24,15 @@ The workflow involves:
 
 ## Development Commands
 
+### Editor / AI tooling (clojure-mcp-light)
+Optional CLI helpers for Clojure + AI assistants (nREPL eval, delimiter repair).
+Not preinstalled in web/remote sessions — reinstall with:
+```bash
+bash scripts/setup-clojure-mcp-light.sh && export PATH="$PATH:$HOME/.local/bin"
+```
+See `docs/dev-setup/clojure-mcp-light.md` for details (including the proxy TLS
+workaround needed for Babashka).
+
 ### REPL Development
 ```bash
 # Start REPL with dev dependencies
