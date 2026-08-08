@@ -85,13 +85,79 @@ The `dev/user.clj` namespace contains:
 
 Use the dev namespace examples like `hello-world-tool` and `javac-tool` to understand the expected data structures and test functionality interactively.
 
+## CWL Specification Reference
+
+The authoritative CWL v1.2 spec lives at <https://www.commonwl.org/v1.2/>. The
+most relevant pages:
+- **CommandLineTool**: <https://www.commonwl.org/v1.2/CommandLineTool.html> —
+  what Fleur implements today.
+- **Workflow**: <https://www.commonwl.org/v1.2/Workflow.html> — Phase 4 target.
+- **User guide**: <https://www.commonwl.org/user_guide/> — worked examples.
+
+A copy of the source schema (SALAD `.yml`) and prose is vendored under
+`docs/cwl-v1.2/` (`CommandLineTool.yml`, `Workflow.yml`, `Process.yml`,
+`Operation.yml`, `concepts.md`, `invocation.md`). These `.yml` files are the
+normative field definitions — consult them when unsure about a field's meaning
+or defaults.
+
+### Process types
+Every CWL document has a `class`. The four process types are `CommandLineTool`,
+`ExpressionTool`, `Workflow`, and `Operation`. Fleur currently handles only
+`CommandLineTool`.
+
+### Command-line building algorithm (CommandLineTool §4.1)
+This is the algorithm `build-command-line` implements:
+1. Collect `CommandLineBinding` objects from `arguments`; sort key `[position, i]`
+   where `i` is the index in the `arguments` list.
+2. Collect bindings from `inputs` (recursively for record/array/map types);
+   sort key is `[position, ...]` down to each leaf binding.
+3. Ties are broken by the field/parameter name of the leaf binding; **numeric
+   entries sort before strings** (so positioned `arguments` precede inputs on a tie).
+4. Sort all entries by their sort key.
+5. Render each binding to tokens using the rules below.
+6. Prepend `baseCommand` (which may be a string or a list) to the front.
+
+### CommandLineBinding fields
+- `position` (default `0`): the primary sort key.
+- `prefix`: a flag string added before the value.
+- `separate` (default `true`): if true, `prefix` and value are separate argv
+  entries; if false they are concatenated into one.
+- `itemSeparator`: for arrays, join elements into one string with this separator.
+- `valueFrom`: a constant or expression that replaces/derives the value.
+- `shellQuote` (default `true`): only meaningful under `ShellCommandRequirement`.
+
+### Type → argument rules
+- **null**: add nothing.
+- **boolean**: if true add `prefix`; if false add nothing.
+- **string / number**: add `prefix` and the (decimal) value.
+- **File / Directory**: add `prefix` and the value of `.path`.
+- **array**: with `itemSeparator`, add `prefix` + joined string; otherwise add
+  `prefix` then recurse into each element; an empty array adds nothing.
+- **record/object**: add `prefix` only, then recurse into fields that have an
+  `inputBinding`. (Not yet implemented in Fleur.)
+
+### Runtime notes
+- Values referenced as `$(...)` / `${...}` are **parameter references /
+  expressions** (`runtime.*`, `inputs.*`, etc.) and must be evaluated before use.
+  Fleur does not evaluate these yet — they are emitted literally.
+- Preprocessing (`$import`/`$include`, `$graph`, identifier and type-name
+  resolution) is normally done by `schema-salad-tool`; Fleur is moving toward a
+  pure-Clojure preprocessing path so it can run without that external tool.
+
 ## Suggested Implementation Roadmap
 
 ### Phase 1: Core CommandLineTool Fixes
 - ✅ Complete `bind-outputs` function with glob pattern matching
-- Fix input value formatting (string quoting issue in `format-input-value`)
+- ✅ Command-line building rewritten to follow the CWL algorithm: vector
+  `baseCommand` splicing, `arguments`, position sorting, and the
+  `prefix`/`separate`/`itemSeparator` CommandLineBinding rules plus per-type
+  formatting (string, number, boolean, File, Directory, array, null). The old
+  `format-input-value` was replaced by `binding-tokens`.
+- Evaluate CWL parameter references / expressions (`$(runtime.outdir)`,
+  `$(inputs.x)`, `${ ... }`) — currently emitted literally.
 - Add proper error handling throughout execution pipeline
-- Implement output file collection and validation
+- Implement output file collection and validation (secondaryFiles, `loadContents`)
+- `stdin`/`stdout`/`stderr` redirection
 
 ### Phase 2: Docker Integration  
 - Expand `docker.clj` to handle volume mounting for input/output files
@@ -99,9 +165,9 @@ Use the dev namespace examples like `hello-world-tool` and `javac-tool` to under
 - Add Docker requirement processing in command execution
 
 ### Phase 3: Schema Validation & Testing
+- ✅ Set up test framework (`clojure.test` via Cognitect test-runner, `:test` alias)
 - Add clojure.spec or schema validation for CWL documents
-- Set up test framework (probably `clojure.test`)
-- Add integration tests with real CWL files
+- Add integration tests that execute real CWL files end-to-end
 - Validate against CWL conformance tests
 
 ### Phase 4: Workflow Support

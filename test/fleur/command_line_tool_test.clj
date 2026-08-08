@@ -61,6 +61,128 @@
                   :c {:inputBinding {:position 3}}}))))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Command line construction (CWL CommandLineTool algorithm)
+;;; ---------------------------------------------------------------------------
+
+(deftest build-command-line-scalar-inputs-test
+  (testing "a string input is emitted as-is after baseCommand"
+    (is (= '("echo" "Hello World")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "echo"
+              :inputs {:message {:type "string" :value "Hello World"
+                                 :inputBinding {:position 1}}}})))))
+
+  (testing "a File input is resolved to its path"
+    (is (= '("javac" "resources/Hello.java")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "javac"
+              :inputs {:src {:type "File"
+                             :value {:class "File" :path "resources/Hello.java"}
+                             :inputBinding {:position 1}}}}))))))
+
+(deftest build-command-line-base-command-test
+  (testing "a vector baseCommand is spliced, not nested"
+    (is (= '("tar" "--extract")
+           (:commandLine
+            (t/build-command-line {:baseCommand ["tar" "--extract"] :inputs {}})))))
+
+  (testing "a missing baseCommand contributes nothing"
+    (is (= '("value")
+           (:commandLine
+            (t/build-command-line
+             {:inputs {:a {:type "string" :value "value"
+                           :inputBinding {:position 1}}}}))))))
+
+(deftest build-command-line-position-test
+  (testing "inputs are ordered by inputBinding position, not map order"
+    (is (= '("cmd" "B" "A")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "cmd"
+              :inputs (array-map
+                       :a {:type "string" :value "A" :inputBinding {:position 2}}
+                       :b {:type "string" :value "B" :inputBinding {:position 1}})}))))))
+
+(deftest build-command-line-prefix-test
+  (testing "a prefix is emitted as a separate token by default"
+    (is (= '("tar" "--file" "hello.tar")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "tar"
+              :inputs {:tarfile {:type "string" :value "hello.tar"
+                                 :inputBinding {:prefix "--file"}}}})))))
+
+  (testing "separate=false concatenates prefix and value into one token"
+    (is (= '("cmd" "-Ivalue")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "cmd"
+              :inputs {:x {:type "string" :value "value"
+                           :inputBinding {:prefix "-I" :separate false}}}}))))))
+
+(deftest build-command-line-arguments-test
+  (testing "arguments precede positioned inputs and keep their order"
+    (is (= '("javac" "-d" "outdir" "Hello.java")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "javac"
+              :arguments ["-d" "outdir"]
+              :inputs {:src {:type "string" :value "Hello.java"
+                             :inputBinding {:position 1}}}}))))))
+
+(deftest build-command-line-boolean-test
+  (testing "a true boolean emits only its prefix"
+    (is (= '("cmd" "--verbose")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "cmd"
+              :inputs {:v {:type "boolean" :value true
+                           :inputBinding {:prefix "--verbose"}}}})))))
+
+  (testing "a false boolean emits nothing"
+    (is (= '("cmd")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "cmd"
+              :inputs {:v {:type "boolean" :value false
+                           :inputBinding {:prefix "--verbose"}}}}))))))
+
+(deftest build-command-line-array-test
+  (testing "an array with itemSeparator joins into one token"
+    (is (= '("cmd" "-I" "a,b,c")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "cmd"
+              :inputs {:xs {:type "array" :value ["a" "b" "c"]
+                            :inputBinding {:prefix "-I" :itemSeparator ","}}}})))))
+
+  (testing "an array without itemSeparator emits the prefix then each element"
+    (is (= '("cmd" "-I" "a" "b")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "cmd"
+              :inputs {:xs {:type "array" :value ["a" "b"]
+                            :inputBinding {:prefix "-I"}}}}))))))
+
+(deftest build-command-line-null-and-no-binding-test
+  (testing "a null value contributes nothing"
+    (is (= '("cmd")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "cmd"
+              :inputs {:opt {:type "string" :value nil
+                             :inputBinding {:prefix "--opt"}}}})))))
+
+  (testing "an input without an inputBinding is not placed on the command line"
+    (is (= '("cmd")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "cmd"
+              :inputs {:hidden {:type "string" :value "x"}}}))))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Glob matching for outputs
 ;;; ---------------------------------------------------------------------------
 

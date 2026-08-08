@@ -40,33 +40,91 @@
   [inputs]
   (sort-by input-sorter inputs))
 
-(defn format-input-value
-  ""
-  [input]
-  (let [input-type (:keyword (:type input))]
+(defn input-type
+  "Return the CWL type of an input/parameter as a keyword, tolerating both
+   the plain-string form (\"File\") and the parsed keyword form (:File)."
+  [spec]
+  (let [t (:type spec)]
     (cond
-      (= input-type :string) (update input :value #(str/join [\" % \"]))
-      (= input-type :File) (get-in input [:value :path])
-      (= input-type :Directory) (get-in input [:value :path])
-      :else (identity input))))
+      (keyword? t) t
+      (string? t)  (keyword t)
+      :else        nil)))
 
-(defn format-input-values
-  ""
-  [command-line-tool]
-  (update command-line-tool :inputs
-          (fn [inputs]
-            (into {} (mapv (fn [[input-key input]]
-                             [input-key (format-input-value input)]) inputs)))))
+(defn- file-or-dir-path
+  "Reduce a File/Directory value to its :path, passing other values through."
+  [v]
+  (if (map? v) (:path v) v))
+
+(defn binding-tokens
+  "Produce the list of command-line tokens for a single value, following the
+   CWL type-to-argument and CommandLineBinding rules (prefix, separate,
+   itemSeparator). Returns a (possibly empty) vector of string tokens."
+  [type-kw binding value]
+  (let [prefix (:prefix binding)
+        separate (get binding :separate true)
+        item-sep (:itemSeparator binding)
+        emit (fn [s]
+               (cond
+                 (nil? prefix) [s]
+                 separate      [prefix s]
+                 :else         [(str prefix s)]))]
+    (cond
+      ;; null: add nothing
+      (nil? value) []
+
+      ;; boolean: if true add the prefix, if false add nothing
+      (= type-kw :boolean)
+      (if value (if prefix [prefix] []) [])
+
+      ;; File / Directory: use the path
+      (contains? #{:File :Directory} type-kw)
+      (emit (str (file-or-dir-path value)))
+
+      ;; array: join with itemSeparator, or add prefix then each element
+      (sequential? value)
+      (let [elems (map (comp str file-or-dir-path) value)]
+        (cond
+          (empty? elems) []
+          item-sep       (emit (str/join item-sep elems))
+          :else          (into (if prefix [prefix] []) elems)))
+
+      ;; string / number / everything else
+      :else (emit (str value)))))
+
+(defn- input-binding-entry
+  "Build a sortable command-line entry for an input, or nil if the input has
+   no inputBinding (such inputs are not placed on the command line)."
+  [[input-key input]]
+  (let [binding (:inputBinding input)]
+    (when binding
+      {:sort-key [(get binding :position 0) 1 (name input-key)]
+       :tokens (binding-tokens (input-type input) binding (:value input))})))
+
+(defn- argument-entry
+  "Build a sortable command-line entry for a CWL `arguments` element. Plain
+   strings become a single token; CommandLineBinding maps honour :position,
+   :prefix and :valueFrom (evaluated literally for now)."
+  [i arg]
+  (if (map? arg)
+    {:sort-key [(get arg :position 0) 0 i]
+     :tokens (binding-tokens :string arg (:valueFrom arg))}
+    {:sort-key [0 0 i]
+     :tokens [(str arg)]}))
 
 (defn build-command-line
-  "Take a command-line tool, and
-   build the command-line to be run."
+  "Build the command line for a tool per the CWL algorithm: collect binding
+   entries from `arguments` and inputs, sort them by [position, kind, name],
+   render each to tokens, and prepend `baseCommand`."
   [tool]
   (let [base-command (:baseCommand tool)
-        tool-inputs (:inputs tool)
-        sorted-tool-inputs (sort-inputs tool-inputs)
-        tool-with-formatted-inputs (format-input-values tool)
-        command-line-elements (concat [base-command] (map :value (vals (:inputs tool-with-formatted-inputs))))]
+        base (cond
+               (nil? base-command)        []
+               (sequential? base-command) (vec base-command)
+               :else                      [base-command])
+        arg-entries (map-indexed argument-entry (:arguments tool))
+        input-entries (keep input-binding-entry (:inputs tool))
+        ordered (sort-by :sort-key (concat arg-entries input-entries))
+        command-line-elements (concat base (mapcat :tokens ordered))]
     (assoc tool :commandLine command-line-elements)))
 
 (defn execute
