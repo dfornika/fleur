@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/setup-clojure-mcp-light.sh\" >/dev/null 2>&1 || true",
+            "async": true,
+            "timeout": 300,
+            "statusMessage": "Installing clojure-mcp-light tools"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export PATH=\"$PATH:$HOME/.local/bin\"; [ -x \"$HOME/.local/bin/clj-paren-repair-claude-hook\" ] && \"$HOME/.local/bin/clj-paren-repair-claude-hook\" --cljfmt || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export PATH=\"$PATH:$HOME/.local/bin\"; [ -x \"$HOME/.local/bin/clj-paren-repair-claude-hook\" ] && \"$HOME/.local/bin/clj-paren-repair-claude-hook\" --cljfmt || true"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "export PATH=\"$PATH:$HOME/.local/bin\"; [ -x \"$HOME/.local/bin/clj-paren-repair-claude-hook\" ] && \"$HOME/.local/bin/clj-paren-repair-claude-hook\" --cljfmt || true"
+          }
+        ]
+      }
+    ]
+  }
+}
