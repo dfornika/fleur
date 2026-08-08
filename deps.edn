@@ -1,7 +1,10 @@
 {:paths ["src" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
         org.clojure/data.json {:mvn/version "2.5.1"}
-        clj-commons/clj-yaml {:mvn/version "1.0.29"}}
+        clj-commons/clj-yaml {:mvn/version "1.0.29"}
+        ;; Rhino: pure-Java ECMAScript engine for evaluating CWL expressions
+        ;; (the CWL spec defines expressions as ECMAScript 5.1).
+        org.mozilla/rhino {:mvn/version "1.7.15"}}
  :aliases
  {:dev {:extra-paths ["dev"]
         :extra-deps {org.clojure/tools.trace {:mvn/version "0.8.0"}

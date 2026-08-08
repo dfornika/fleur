@@ -2,6 +2,9 @@
   "Tests for behaviour we consider correct. These should stay green."
   (:require [clojure.test :refer [deftest testing is]]
             [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.data.json :as json]
+            [clj-yaml.core :as yaml]
             [fleur.command-line-tool :as t]))
 
 ;;; ---------------------------------------------------------------------------
@@ -183,6 +186,57 @@
               :inputs {:hidden {:type "string" :value "x"}}}))))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Command line construction with expression evaluation (2-arity)
+;;; ---------------------------------------------------------------------------
+
+(deftest build-command-line-literal-without-context-test
+  (testing "without a context, expressions are emitted literally"
+    (is (= '("javac" "-d" "$(runtime.outdir)" "Hello.java")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "javac"
+              :arguments ["-d" "$(runtime.outdir)"]
+              :inputs {:src {:type "string" :value "Hello.java"
+                             :inputBinding {:position 1}}}}))))))
+
+(deftest build-command-line-parameter-reference-test
+  (testing "arguments' parameter references resolve against the context"
+    (let [tool {:baseCommand "javac"
+                :arguments ["-d" "$(runtime.outdir)"]
+                :inputs {:src {:type "File"
+                               :value {:class "File" :path "resources/Hello.java"}
+                               :inputBinding {:position 1}}}}
+          ctx (t/evaluation-context tool {:outdir "/tmp/out"})]
+      (is (= '("javac" "-d" "/tmp/out" "resources/Hello.java")
+             (:commandLine (t/build-command-line tool ctx)))))))
+
+(deftest build-command-line-value-from-test
+  (testing "an input inputBinding :valueFrom is evaluated with self = value"
+    (let [tool {:baseCommand "echo"
+                :inputs {:x {:type "string" :value "abc"
+                             :inputBinding {:position 1 :valueFrom "$(self)-suffix"}}}}
+          ctx (t/evaluation-context tool {})]
+      (is (= '("echo" "abc-suffix")
+             (:commandLine (t/build-command-line tool ctx)))))))
+
+(deftest build-command-line-inline-javascript-test
+  (testing "InlineJavascriptRequirement enables JS in expressions"
+    (let [tool {:baseCommand "echo"
+                :requirements [{:class "InlineJavascriptRequirement"}]
+                :arguments [{:valueFrom "$(inputs.n * 2)"}]
+                :inputs {:n {:type "int" :value 21}}}
+          ctx (t/evaluation-context tool {})]
+      (is (= '("echo" "42")
+             (:commandLine (t/build-command-line tool ctx))))))
+
+  (testing "without InlineJavascriptRequirement a JS expression is rejected"
+    (let [tool {:baseCommand "echo"
+                :arguments [{:valueFrom "$(inputs.n * 2)"}]
+                :inputs {:n {:type "int" :value 21}}}
+          ctx (t/evaluation-context tool {})]
+      (is (thrown? clojure.lang.ExceptionInfo (t/build-command-line tool ctx))))))
+
+;;; ---------------------------------------------------------------------------
 ;;; Glob matching for outputs
 ;;; ---------------------------------------------------------------------------
 
@@ -235,3 +289,109 @@
            (:boundOutputs
             (t/bind-outputs {:outputs {:result {:type "File"
                                                 :outputBinding {}}}}))))))
+
+;;; ---------------------------------------------------------------------------
+;;; Output binding with a context: glob expressions, secondaryFiles, format
+;;; ---------------------------------------------------------------------------
+
+(deftest bind-outputs-collects-from-outdir-test
+  (testing "files are collected from runtime.outdir, array output type"
+    (with-temp-dir
+      (fn [dir]
+        (spit (io/file dir "a.class") "")
+        (spit (io/file dir "b.class") "")
+        (let [tool {:outputs {:cls {:type "File[]" :outputBinding {:glob "*.class"}}}}
+              ctx {:runtime {:outdir (.getPath dir)}}
+              cls (:cls (:boundOutputs (t/bind-outputs tool ctx)))]
+          (is (= 2 (count cls)))
+          (is (= #{"a.class" "b.class"} (set (map :basename cls)))))))))
+
+(deftest bind-outputs-glob-expression-test
+  (testing "an outputBinding :glob expression is evaluated against the context"
+    (with-temp-dir
+      (fn [dir]
+        (spit (io/file dir "report.txt") "")
+        (let [tool {:outputs {:r {:type "File" :outputBinding {:glob "$(inputs.name)"}}}}
+              ctx {:runtime {:outdir (.getPath dir)} :inputs {:name "report.txt"}}
+              r (:r (:boundOutputs (t/bind-outputs tool ctx)))]
+          (is (= "report.txt" (:basename r))))))))
+
+(deftest bind-outputs-secondary-files-test
+  (testing "secondaryFiles are resolved by suffix and caret rules, if they exist"
+    (with-temp-dir
+      (fn [dir]
+        (doseq [f ["reads.bam" "reads.bai" "reads.bam.md5"]]
+          (spit (io/file dir f) ""))
+        (let [tool {:outputs {:bam {:type "File"
+                                    :outputBinding {:glob "reads.bam"}
+                                    :secondaryFiles ["^.bai" ".md5"]}}}
+              ctx {:runtime {:outdir (.getPath dir)}}
+              bam (:bam (:boundOutputs (t/bind-outputs tool ctx)))]
+          (is (= #{"reads.bai" "reads.bam.md5"}
+                 (set (map :basename (:secondaryFiles bam))))))))))
+
+(deftest bind-outputs-format-test
+  (testing "an output :format is attached (and evaluated) on the bound File"
+    (with-temp-dir
+      (fn [dir]
+        (spit (io/file dir "d.txt") "")
+        (let [tool {:outputs {:o {:type "File" :format "http://example.org/fmt"
+                                  :outputBinding {:glob "d.txt"}}}}
+              ctx {:runtime {:outdir (.getPath dir)}}
+              o (:o (:boundOutputs (t/bind-outputs tool ctx)))]
+          (is (= "http://example.org/fmt" (:format o))))))))
+
+;;; ---------------------------------------------------------------------------
+;;; Execution: stdin / stdout / stderr redirection
+;;; ---------------------------------------------------------------------------
+
+(deftest execute-stdout-redirection-test
+  (testing "captured stdout is written to the named file under outdir"
+    (with-temp-dir
+      (fn [dir]
+        (let [tool {:commandLine ["echo" "hello world"] :stdout "out.txt"}
+              ctx {:runtime {:outdir (.getPath dir)}}
+              result (t/execute tool ctx)]
+          (is (zero? (:exit (:executionResult result))))
+          (is (= "hello world" (str/trim (slurp (io/file dir "out.txt"))))))))))
+
+(deftest execute-stdin-redirection-test
+  (testing "stdin is redirected from the named file"
+    (with-temp-dir
+      (fn [dir]
+        (let [in (io/file dir "in.txt")]
+          (spit in "piped content")
+          (let [tool {:commandLine ["cat"] :stdin (.getPath in) :stdout "o.txt"}
+                ctx {:runtime {:outdir (.getPath dir)}}]
+            (t/execute tool ctx)
+            (is (= "piped content" (slurp (io/file dir "o.txt"))))))))))
+
+;;; ---------------------------------------------------------------------------
+;;; End-to-end run
+;;; ---------------------------------------------------------------------------
+
+(deftest run-end-to-end-test
+  (testing "run builds runtime + context, executes, and binds outputs"
+    (let [tool {:baseCommand "echo"
+                :arguments ["hi there"]
+                :stdout "message.txt"
+                :inputs {}
+                :outputs {:out {:type "File" :outputBinding {:glob "message.txt"}}}}
+          result (t/run tool {})
+          out (:out (:boundOutputs result))]
+      (is (zero? (:exit (:executionResult result))))
+      (is (= "message.txt" (:basename out)))
+      (is (= "hi there" (str/trim (slurp (:path out))))))))
+
+(deftest run-tar-extract-integration-test
+  (testing "the tar_extract sample runs end-to-end: a relative input path is
+            resolved to absolute, tar runs in outdir, and the output is bound"
+    (let [tool (yaml/parse-string (slurp (io/resource "tar_extract.cwl")))
+          job  (json/read-str (slurp (io/resource "tar_extract-job.json")) :key-fn keyword)
+          result (t/run tool job)
+          out (:example_out (:boundOutputs result))]
+      (is (str/ends-with? (nth (:commandLine result) 3) "/resources/hello.tar")
+          "the relative tarfile path was resolved to an absolute path")
+      (is (zero? (:exit (:executionResult result))))
+      (is (= "hello.txt" (:basename out)))
+      (is (.exists (io/file (:path out)))))))
