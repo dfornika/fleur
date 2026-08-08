@@ -18,6 +18,10 @@ The codebase is organized into these namespaces:
 - `fleur.runtime`: Constructs the CWL `runtime` object (`outdir`, `tmpdir`,
   `cores`, `ram`, ...) exposed to expressions as `runtime.*`, honoring
   `ResourceRequirement`.
+- `fleur.staging`: Resolves input File/Directory paths to absolute locations
+  (populating CWL File metadata: `basename`, `dirname`, `nameroot`, `nameext`,
+  `size`), stages inputs into the working directory, and processes
+  `InitialWorkDirRequirement`.
 - `fleur.schema-salad`: Integration with schema-salad-tool for CWL preprocessing and validation  
 - `fleur.docker`: Docker image management utilities
 
@@ -166,11 +170,15 @@ This is the algorithm `build-command-line` implements:
 - The `runtime` object is populated by `fleur.runtime/make-runtime` (outdir and
   tmpdir are created as temp dirs unless supplied; cores/ram come from
   `ResourceRequirement` or sensible defaults). `command-line-tool/run` ties the
-  whole pipeline together: defaults -> job values -> runtime -> context ->
+  whole pipeline together: defaults -> job values -> resolve input paths ->
+  runtime -> (optional stage-inputs) -> InitialWorkDirRequirement -> context ->
   build -> execute -> bind-outputs.
-- **Not yet done**: staging input files into the working directory, so a tool
-  run in `runtime.outdir` still needs absolute input paths; stdout/stderr are
-  captured then written to file (no streaming/binary redirection).
+- Input Files are resolved to absolute paths (`fleur.staging/resolve-inputs`,
+  base dir = cwd or `run`'s `:basedir`), so tools run in `runtime.outdir` still
+  find their inputs. `run`'s `:stage-inputs?` copies inputs into the working dir;
+  `InitialWorkDirRequirement` entries are always staged there.
+- **Not yet done**: `loadContents`; symlink-vs-copy policy tuning; stdout/stderr
+  are captured then written to file (no streaming/binary redirection).
 - Preprocessing (`$import`/`$include`, `$graph`, identifier and type-name
   resolution) is normally done by `schema-salad-tool`; Fleur is moving toward a
   pure-Clojure preprocessing path so it can run without that external tool.
@@ -193,8 +201,9 @@ This is the algorithm `build-command-line` implements:
 - ✅ `stdin`/`stdout`/`stderr` redirection (in `execute`).
 - ✅ Output file collection incl. `secondaryFiles` (suffix/`^` and expression
   patterns) and `format`. Still to do: `loadContents`, output validation.
-- Stage input files into the working directory (so relative input paths resolve
-  when running in `runtime.outdir`).
+- ✅ Resolve input File paths to absolute + populate File metadata, stage inputs
+  into the working directory, and process `InitialWorkDirRequirement`
+  (`fleur.staging`). The `tar_extract` sample now runs end-to-end.
 - Add proper error handling throughout execution pipeline
 
 ### Phase 2: Docker Integration  

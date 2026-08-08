@@ -3,6 +3,8 @@
   (:require [clojure.test :refer [deftest testing is]]
             [clojure.java.io :as io]
             [clojure.string :as str]
+            [clojure.data.json :as json]
+            [clj-yaml.core :as yaml]
             [fleur.command-line-tool :as t]))
 
 ;;; ---------------------------------------------------------------------------
@@ -380,3 +382,16 @@
       (is (zero? (:exit (:executionResult result))))
       (is (= "message.txt" (:basename out)))
       (is (= "hi there" (str/trim (slurp (:path out))))))))
+
+(deftest run-tar-extract-integration-test
+  (testing "the tar_extract sample runs end-to-end: a relative input path is
+            resolved to absolute, tar runs in outdir, and the output is bound"
+    (let [tool (yaml/parse-string (slurp (io/resource "tar_extract.cwl")))
+          job  (json/read-str (slurp (io/resource "tar_extract-job.json")) :key-fn keyword)
+          result (t/run tool job)
+          out (:example_out (:boundOutputs result))]
+      (is (str/ends-with? (nth (:commandLine result) 3) "/resources/hello.tar")
+          "the relative tarfile path was resolved to an absolute path")
+      (is (zero? (:exit (:executionResult result))))
+      (is (= "hello.txt" (:basename out)))
+      (is (.exists (io/file (:path out)))))))

@@ -3,7 +3,8 @@
             [clojure.java.shell :as shell]
             [clojure.java.io :as io]
             [fleur.expression :as expr]
-            [fleur.runtime :as rt]))
+            [fleur.runtime :as rt]
+            [fleur.staging :as stg]))
 
 (defn assoc-input-with-value
   "Associate a value with a specific input in the tool."
@@ -334,17 +335,29 @@
        tool))))
 
 (defn run
-  "End-to-end convenience: apply defaults and `provided-inputs`, build the
-   `runtime` object and evaluation context, then build the command line,
-   execute, and bind outputs. `runtime-opts` is passed to
-   `fleur.runtime/make-runtime` (e.g. `{:outdir \"...\"}`)."
+  "End-to-end convenience: apply defaults and `provided-inputs`, resolve input
+   File paths, build the `runtime` object and evaluation context, stage inputs,
+   then build the command line, execute, and bind outputs.
+
+   `opts` are passed to `fleur.runtime/make-runtime` (e.g. `{:outdir \"...\"}`)
+   plus staging controls:
+   - `:basedir`       base directory for resolving relative input paths
+                      (default: the current working directory)
+   - `:stage-inputs?` copy every input File/Directory into `runtime.outdir`
+                      before running (default: false; paths stay absolute)."
   ([tool provided-inputs] (run tool provided-inputs {}))
-  ([tool provided-inputs runtime-opts]
-   (let [tool (-> tool
+  ([tool provided-inputs {:keys [basedir stage-inputs?] :as opts}]
+   (let [basedir (or basedir (System/getProperty "user.dir"))
+         tool (-> tool
                   assoc-inputs-with-default-values
-                  (assoc-inputs-with-values provided-inputs))
-         runtime (rt/make-runtime tool runtime-opts)
-         context (evaluation-context tool runtime)]
+                  (assoc-inputs-with-values provided-inputs)
+                  (stg/resolve-inputs basedir))
+         runtime (rt/make-runtime tool opts)
+         tool (cond-> tool
+                stage-inputs? (stg/stage-inputs! (:outdir runtime)))
+         context (evaluation-context tool runtime)
+         js? (inline-javascript? tool)]
+     (stg/initial-work-dir! tool (:outdir runtime) context js?)
      (-> tool
          (build-command-line context)
          (execute context)
