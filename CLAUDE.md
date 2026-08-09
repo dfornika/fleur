@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Fleur is a Clojure library for running Common Workflow Language (CWL) workflows. It currently provides functionality to parse, execute, and manage CWL CommandLineTools and ExpressionTools, with support for Docker containers and schema validation via schema-salad. Though most of that functionality is currently incomplete and not thoroughly tested. It will also support running CWL workflows, though that hasn't been implemented yet.
+Fleur is a Clojure library for running Common Workflow Language (CWL) workflows. It currently provides functionality to parse, execute, and manage CWL CommandLineTools and ExpressionTools, with support for Docker containers and schema validation via schema-salad. It can also run linear (static-DAG) `Workflow` processes; scatter/gather and conditional (`when`) execution are not yet implemented. Though most of that functionality is currently incomplete and not thoroughly tested.
 
 ## Architecture
 
@@ -30,7 +30,11 @@ The codebase is organized into these namespaces:
   the tool's `expression` against the bound inputs and map the resulting object
   onto the declared outputs.
 - `fleur.process`: Uniform entry point that runs a CWL process by dispatching on
-  its `class` (`CommandLineTool` / `ExpressionTool`).
+  its `class` (`CommandLineTool` / `ExpressionTool` / `Workflow`).
+- `fleur.workflow`: Execution of linear (static-DAG) `Workflow` processes —
+  models step dependencies as an ubergraph digraph, runs steps in topological
+  order (rejecting cycles), wires each step's outputs into downstream inputs and
+  the workflow outputs, and inherits requirements from the workflow onto steps.
 
 The workflow involves:
 1. Preprocessing CWL files with schema-salad-tool to resolve references and validate schema
@@ -77,8 +81,8 @@ clojure -X:test :nses '[fleur.command-line-tool-test]'
 ```
 Test files live in `test/`: `fleur.command-line-tool-test`,
 `fleur.expression-test`, `fleur.expression-tool-test`, `fleur.process-test`,
-`fleur.runtime-test`, `fleur.staging-test`, and `fleur.docker-test`. All should
-stay green.
+`fleur.workflow-test`, `fleur.runtime-test`, `fleur.staging-test`, and
+`fleur.docker-test`. All should stay green.
 
 `fleur.docker-test`'s end-to-end container test is guarded: it runs only when a
 Docker daemon is reachable and the `busybox:latest` image is already present,
@@ -96,6 +100,9 @@ docker pull busybox:latest
 - **Core Clojure libraries**: data.json for JSON parsing, clj-yaml for YAML support
 - **Rhino** (`org.mozilla/rhino`): pure-Java ECMAScript engine used by
   `fleur.expression` to evaluate CWL JavaScript expressions on the JVM
+- **ubergraph** (`ubergraph/ubergraph`): directed-graph library used by
+  `fleur.workflow` for step-dependency ordering, cycle detection, and (optional)
+  visualization
 
 ## Key Data Structures
 
@@ -139,9 +146,12 @@ or defaults.
 
 ### Process types
 Every CWL document has a `class`. The four process types are `CommandLineTool`,
-`ExpressionTool`, `Workflow`, and `Operation`. Fleur handles `CommandLineTool`
-and `ExpressionTool` (dispatched via `fleur.process/run`); `Workflow` and
-`Operation` are not yet implemented.
+`ExpressionTool`, `Workflow`, and `Operation`. Fleur handles `CommandLineTool`,
+`ExpressionTool`, and linear `Workflow` processes (all dispatched via
+`fleur.process/run`); `Operation`, and `Workflow` scatter/gather and conditional
+`when`, are not yet implemented. Input type shorthands (e.g. `n: int`) are not
+expanded — write inputs in full form (`n: {type: int}`) unless the document has
+been preprocessed by schema-salad-tool.
 
 ### Command-line building algorithm (CommandLineTool §4.1)
 This is the algorithm `build-command-line` implements:
@@ -244,6 +254,10 @@ This is the algorithm `build-command-line` implements:
 ### Phase 4: Workflow Support
 - ✅ `ExpressionTool` process class (`fleur.expression-tool`) and a class
   dispatcher (`fleur.process/run`) covering CommandLineTool + ExpressionTool.
-- Implement `Workflow` class parsing (steps, inputs/outputs wiring)
-- Add step dependency resolution (topological order, output→input wiring)
+- ✅ `Workflow` class parsing (steps, `in`/`out`, `outputSource`; map & list
+  forms) and step dependency resolution — topological order via an ubergraph
+  digraph with cycle detection, output→input wiring, step `default`/`valueFrom`,
+  requirement inheritance, and sub-workflow recursion (`fleur.workflow`).
 - Implement scatter/gather operations
+- Implement conditional step execution (`when`), multi-source `linkMerge`, and
+  input type-shorthand normalization

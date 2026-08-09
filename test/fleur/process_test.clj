@@ -23,7 +23,20 @@
       (is (zero? (:exit (:executionResult result))))
       (is (= "out.txt" (get-in result [:boundOutputs :o :basename]))))))
 
+(deftest dispatch-workflow-test
+  (testing "a Workflow is dispatched (via requiring-resolve) to the workflow runner"
+    (let [wf {:class "Workflow"
+              :requirements [{:class "InlineJavascriptRequirement"}]
+              :inputs {:x {:type "int"}}
+              :outputs {:result {:type "int" :outputSource "double/out"}}
+              :steps {:double {:in {:n {:source "x"}} :out [:out]
+                               :run {:class "ExpressionTool"
+                                     :inputs {:n {:type "int"}}
+                                     :outputs {:out {:type "int"}}
+                                     :expression "${ return {out: inputs.n * 2}; }"}}}}]
+      (is (= 8 (get-in (process/run wf {:x 4}) [:boundOutputs :result]))))))
+
 (deftest dispatch-unknown-class-test
   (testing "an unsupported class throws"
     (is (thrown? clojure.lang.ExceptionInfo
-                 (process/run {:class "Workflow"} {})))))
+                 (process/run {:class "Operation"} {})))))
