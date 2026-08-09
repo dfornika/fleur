@@ -13,5 +13,8 @@
    (case (some-> (:class tool) name)
      "CommandLineTool" (clt/run tool provided-inputs opts)
      "ExpressionTool"  (et/run tool provided-inputs opts)
+     ;; Resolved at call time to avoid a compile-time cycle
+     ;; (fleur.workflow requires fleur.process to run its steps).
+     "Workflow"        ((requiring-resolve 'fleur.workflow/run) tool provided-inputs opts)
      (throw (ex-info (str "Unsupported process class: " (pr-str (:class tool)))
                      {:class (:class tool)})))))
