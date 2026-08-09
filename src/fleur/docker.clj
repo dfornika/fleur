@@ -55,9 +55,13 @@
 (defn ensure-image!
   "Ensure the image for `req` is available locally, pulling it when a
    `dockerPull` is given and the image is not already present. Returns the image
-   reference to use with `docker run`."
+   reference to use with `docker run`. Throws if the DockerRequirement names no
+   image (neither `dockerImageId` nor `dockerPull`)."
   [req]
   (let [image (docker-image req)]
+    (when-not image
+      (throw (ex-info "DockerRequirement specifies no image (need dockerImageId or dockerPull)"
+                      {:requirement req})))
     (when (and (:dockerPull req) (not (image-present? image)))
       (docker-pull (:dockerPull req)))
     image))
@@ -87,10 +91,15 @@
                        (sort-by (comp name key))
                        (mapcat (fn [[_ input]] (primary-files (:value input)))))
         add-file (fn [acc dir obj]
-                   (let [cpath (str dir "/" (:basename obj))]
-                     (-> acc
-                         (update :mounts conj {:host (:path obj) :container cpath :mode "ro"})
-                         (update :path-map assoc (:path obj) cpath))))
+                   ;; Dedupe by host path: a path referenced by more than one
+                   ;; input (or as both a primary and a secondary) gets a single
+                   ;; mount and a single, stable container mapping.
+                   (if (contains? (:path-map acc) (:path obj))
+                     acc
+                     (let [cpath (str dir "/" (:basename obj))]
+                       (-> acc
+                           (update :mounts conj {:host (:path obj) :container cpath :mode "ro"})
+                           (update :path-map assoc (:path obj) cpath)))))
         base (reduce (fn [acc [idx obj]]
                        (let [dir (str inputs-root "/" idx)]
                          (reduce (fn [a sf] (add-file a dir sf))

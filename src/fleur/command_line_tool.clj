@@ -358,8 +358,12 @@
         stderr-name (when (:stderr tool) (expr/evaluate (:stderr tool) c-context {:js? js?}))
         user (or docker-user (when match-user? (docker/current-user)))
         network (docker/network-arg tool c-context js?)
-        image (docker/ensure-image! req)]
-    (stg/initial-work-dir! tool host-outdir c-context js?)
+        image (docker/ensure-image! req)
+        ;; InitialWorkDirRequirement stages onto the HOST outdir, so File/input
+        ;; sources must resolve to host paths; runtime.* references, however, are
+        ;; consumed inside the container, so use the container runtime there.
+        iwdr-context (assoc host-context :runtime (:runtime c-context))]
+    (stg/initial-work-dir! tool host-outdir iwdr-context js?)
     (let [built (build-command-line c-tool c-context)
           argv (docker/docker-run-argv image mounts c-outdir (:commandLine built)
                                        {:user user :network network})

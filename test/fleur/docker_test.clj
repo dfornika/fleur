@@ -56,6 +56,22 @@
     (testing "every input mount is read-only"
       (is (every? #(= "ro" (:mode %)) (take 3 mounts))))))
 
+(deftest plan-mounts-dedup-test
+  (testing "a host path shared by multiple inputs yields one mount and mapping"
+    (let [tool {:inputs (array-map
+                         :x {:value {:class "File" :path "/data/shared.txt" :basename "shared.txt"}}
+                         :y {:value {:class "File" :path "/data/shared.txt" :basename "shared.txt"}})}
+          {:keys [mounts path-map]} (docker/plan-mounts tool "/o" "/t" "/var/spool/cwl" "/tmp")
+          input-mounts (filter #(= "ro" (:mode %)) mounts)]
+      (is (= 1 (count input-mounts)))
+      (is (= 1 (count path-map)))
+      (is (= "/var/lib/cwl/inputs/0/shared.txt" (path-map "/data/shared.txt"))))))
+
+(deftest ensure-image-requires-image-test
+  (testing "a DockerRequirement with no image reference fails fast"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no image"
+                          (docker/ensure-image! {:class "DockerRequirement"})))))
+
 (deftest remap-tool-paths-test
   (let [{:keys [path-map]} (docker/plan-mounts sample-tool "/o" "/t" "/var/spool/cwl" "/tmp")
         remapped (docker/remap-tool-paths sample-tool path-map)]
