@@ -26,7 +26,9 @@ The codebase is organized into these namespaces:
   default `:clojure` backend implements a pragmatic subset — type-DSL expansion
   (`int?`, `File[]`, the `param: int` shorthand) and inputs/outputs
   normalization — and defers `$import`/`$graph` (throwing, with a pointer to the
-  `:schema-salad-tool` backend).
+  `:schema-salad-tool` backend). An exploratory `:cwljava` backend (optional,
+  loaded reflectively) uses the schema-salad-generated Java SDK for
+  full-fidelity loading and adapts its object graph back into Fleur maps.
 - `fleur.schema-salad`: Integration with schema-salad-tool (the
   `:schema-salad-tool` preprocessing backend) for full-fidelity CWL preprocessing.
 - `fleur.docker`: Docker execution — image resolution/pull, planning read-only
@@ -88,7 +90,15 @@ clojure -X:test :nses '[fleur.command-line-tool-test]'
 Test files live in `test/`: `fleur.command-line-tool-test`,
 `fleur.expression-test`, `fleur.expression-tool-test`, `fleur.preprocess-test`,
 `fleur.process-test`, `fleur.workflow-test`, `fleur.runtime-test`,
-`fleur.staging-test`, and `fleur.docker-test`. All should stay green.
+`fleur.staging-test`, `fleur.docker-test`, and `fleur.cwljava-test`. All should
+stay green.
+
+`fleur.cwljava-test` is guarded like the Docker test: it exercises the optional
+`:cwljava` backend and skips unless cwljava is on the classpath. Run it with the
+alias:
+```bash
+clojure -X:test:cwljava
+```
 
 `fleur.docker-test`'s end-to-end container test is guarded: it runs only when a
 Docker daemon is reachable and the `busybox:latest` image is already present,
@@ -109,6 +119,9 @@ docker pull busybox:latest
 - **ubergraph** (`ubergraph/ubergraph`): directed-graph library used by
   `fleur.workflow` for step-dependency ordering, cycle detection, and (optional)
   visualization
+- **cwljava** (optional, `:cwljava` alias): the schema-salad-generated CWL Java
+  SDK (`org.commonwl.cwlsdk.cwl1_2`), pulled from GitHub via JitPack. Powers the
+  exploratory `:cwljava` preprocessing backend; not part of the default build/CI.
 
 ## Key Data Structures
 
@@ -259,10 +272,12 @@ This is the algorithm `build-command-line` implements:
 ### Phase 3: Schema Validation & Testing
 - ✅ Set up test framework (`clojure.test` via Cognitect test-runner, `:test` alias)
 - ✅ Backend-swappable preprocessing API (`fleur.preprocess`) with a native
-  type-DSL/normalization subset and a `schema-salad-tool` backend. Still to do
-  natively: `$import`/`$include`, `$graph`, identifier/link resolution; and
-  wiring preprocessing into `run` by default. (A generated Java loader such as
-  `cwljava` is an option for full fidelity.)
+  type-DSL/normalization subset, a `schema-salad-tool` backend, and an
+  exploratory `:cwljava` backend (optional JitPack dep; full-fidelity loading
+  adapted back to Fleur maps). Still to do: native `$import`/`$include`,
+  `$graph`, identifier/link resolution; wiring preprocessing into `run` by
+  default; and deciding whether to promote `:cwljava` (JitPack vs.
+  build-and-host/vendor) or keep growing the native subset.
 - Add clojure.spec or schema validation for CWL documents
 - Add integration tests that execute real CWL files end-to-end
 - Validate against CWL conformance tests

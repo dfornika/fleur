@@ -119,6 +119,94 @@
     doc))
 
 ;;; ---------------------------------------------------------------------------
+;;; cwljava backend (optional; requires the :cwljava alias / classpath)
+;;;
+;;; cwljava is the schema-salad-generated Java SDK. It performs full document
+;;; loading/preprocessing and returns a typed Java object graph, which we adapt
+;;; back into Fleur's plain keyword-maps. Loaded reflectively so this namespace
+;;; never hard-depends on cwljava being on the classpath.
+;;; ---------------------------------------------------------------------------
+
+(declare java->clj)
+
+(defn- cwljava-object? [x]
+  (and (some? x) (.startsWith (.getName (class x)) "org.commonwl.cwlsdk")))
+
+(defn- enum->cwl
+  "A generated CWL enum's symbol (e.g. \"CommandLineTool\", \"File\"). The symbol
+   is stored in a private `docVal` field; fall back to the Java constant name."
+  [x]
+  (or (try (let [f (.getDeclaredField (class x) "docVal")]
+             (.setAccessible f true)
+             (.get f x))
+           (catch Throwable _ nil))
+      (.name ^Enum x)))
+
+(defn- bean->clj
+  "Convert a cwljava object to a map: drop Java/loader plumbing, prune keys whose
+   value is absent (so Fleur's binding defaults apply), and rename the generated
+   `class_` field back to the CWL `class`."
+  [x]
+  (let [m (reduce (fn [m [k v]]
+                    (let [cv (java->clj v)]
+                      (if (nil? cv) m (assoc m k cv))))
+                  {}
+                  (dissoc (bean x) :class :loadingOptions :extensionFields))]
+    (if (contains? m :class_)
+      (-> m (assoc :class (:class_ m)) (dissoc :class_))
+      m)))
+
+(defn- java->clj
+  "Recursively convert a cwljava/Java value into Clojure data: unwrap Optionals,
+   Maps -> maps, Lists -> vectors, enums -> their CWL symbol, cwljava objects ->
+   maps; scalars pass through."
+  [x]
+  (cond
+    (nil? x)                          nil
+    (instance? java.util.Optional x)  (java->clj (.orElse ^java.util.Optional x nil))
+    (instance? java.util.Map x)       (reduce (fn [m [k v]] (assoc m (keyword (str k)) (java->clj v))) {} x)
+    (instance? java.util.List x)      (mapv java->clj x)
+    (instance? java.lang.Enum x)      (enum->cwl x)
+    (cwljava-object? x)               (bean->clj x)
+    :else                             x))
+
+(defn- short-id
+  "Reduce a cwljava-resolved identifier URI to its short name (the fragment after
+   the last `#`, then the last path segment)."
+  [id]
+  (when id
+    (-> (str id) (str/split #"#") last (str/split #"/") last)))
+
+(defn- shorten-ids
+  "Rewrite `:id` fields to short names, so the adapted document matches Fleur's
+   short-identifier conventions."
+  [x]
+  (cond
+    (map? x)        (into {} (map (fn [[k v]]
+                                    [k (if (and (= k :id) (string? v))
+                                         (short-id v)
+                                         (shorten-ids v))])
+                                  x))
+    (sequential? x) (mapv shorten-ids x)
+    :else           x))
+
+(defn cwljava-load-file
+  "Load and preprocess a CWL file with cwljava (via reflection), returning a
+   Fleur-style keyword-map. Requires cwljava on the classpath (`:cwljava` alias)."
+  [f]
+  (let [rl (try (Class/forName "org.commonwl.cwlsdk.cwl1_2.utils.RootLoader")
+                (catch ClassNotFoundException _
+                  (throw (ex-info "cwljava is not on the classpath — enable the :cwljava alias (e.g. `clojure -X:test:cwljava`)"
+                                  {:backend :cwljava}))))
+        m (.getMethod rl "loadDocument" (into-array Class [java.io.File]))]
+    (-> (.invoke m nil (object-array [(io/file f)]))
+        java->clj
+        shorten-ids
+        ;; normalize inputs/outputs to Fleur's map form (types are already
+        ;; resolved by cwljava, so this is just list->map + idempotent expansion)
+        expand-types)))
+
+;;; ---------------------------------------------------------------------------
 ;;; Public API
 ;;; ---------------------------------------------------------------------------
 
@@ -134,8 +222,8 @@
   ([doc {:keys [backend basedir] :or {backend :clojure}}]
    (case backend
      :clojure (-> doc (resolve-imports basedir) select-graph expand-types)
-     :schema-salad-tool
-     (throw (ex-info "The :schema-salad-tool backend works on files; use preprocess-file"
+     (:schema-salad-tool :cwljava)
+     (throw (ex-info (str "The " backend " backend works on files; use preprocess-file")
                      {:backend backend}))
      (throw (ex-info (str "Unknown preprocessing backend: " backend) {:backend backend})))))
 
@@ -150,4 +238,5 @@
      :clojure (let [basedir (or (:basedir opts) (some-> (io/file f) .getAbsoluteFile .getParent))]
                 (preprocess (yaml/parse-string (slurp f)) (assoc opts :basedir basedir)))
      :schema-salad-tool (schema-salad/preprocess-via-shell f)
+     :cwljava (cwljava-load-file f)
      (throw (ex-info (str "Unknown preprocessing backend: " backend) {:backend backend})))))
