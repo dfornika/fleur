@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Clojure CLI
+        run: curl -sL https://download.clojure.org/install/linux-install.sh | sudo bash
+
+      - name: Cache Clojure dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: cljdeps-${{ hashFiles('deps.edn') }}
+          restore-keys: cljdeps-
+
+      # Pre-pull the image the Docker integration test uses. It's guarded to
+      # skip when the image isn't present, so a registry hiccup won't fail CI.
+      - name: Pull busybox image (for the Docker integration test)
+        run: docker pull busybox:latest
+        continue-on-error: true
+
+      - name: Run tests
+        run: clojure -X:test
