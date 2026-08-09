@@ -4,7 +4,8 @@
             [clojure.java.io :as io]
             [fleur.expression :as expr]
             [fleur.runtime :as rt]
-            [fleur.staging :as stg]))
+            [fleur.staging :as stg]
+            [fleur.docker :as docker]))
 
 (defn assoc-input-with-value
   "Associate a value with a specific input in the tool."
@@ -334,17 +335,51 @@
          (assoc tool :boundOutputs bound-outputs))
        tool))))
 
+(defn- run-docker
+  "Run a dockerized tool: mount inputs read-only and outdir/tmpdir read-write,
+   remap input paths to their container locations, build the command line with a
+   container-relative runtime, and wrap it in `docker run`. stdout/stderr are
+   captured and written to the host outdir (which is the mounted container
+   outdir), so `bind-outputs` collects results from the host side."
+  [tool req runtime opts]
+  (let [js? (inline-javascript? tool)
+        host-outdir (:outdir runtime)
+        c-outdir (docker/container-outdir req)
+        c-tmpdir docker/default-container-tmpdir
+        {:keys [mounts path-map]} (docker/plan-mounts tool host-outdir (:tmpdir runtime)
+                                                      c-outdir c-tmpdir)
+        host-context (evaluation-context tool runtime)
+        c-tool (docker/remap-tool-paths tool path-map)
+        c-context (evaluation-context c-tool (assoc runtime :outdir c-outdir :tmpdir c-tmpdir))
+        ;; stdin is piped into `docker run` from the host, so keep the host path
+        stdin (some-> (when (:stdin tool) (expr/evaluate (:stdin tool) host-context {:js? js?}))
+                      as-path)
+        stdout-name (when (:stdout tool) (expr/evaluate (:stdout tool) c-context {:js? js?}))
+        stderr-name (when (:stderr tool) (expr/evaluate (:stderr tool) c-context {:js? js?}))
+        image (docker/ensure-image! req)]
+    (stg/initial-work-dir! tool host-outdir c-context js?)
+    (let [built (build-command-line c-tool c-context)
+          argv (docker/docker-run-argv image mounts c-outdir (:commandLine built))
+          result (apply shell/sh (cond-> argv stdin (conj :in (io/file stdin))))]
+      (when stdout-name (spit (io/file host-outdir stdout-name) (:out result)))
+      (when stderr-name (spit (io/file host-outdir stderr-name) (:err result)))
+      (-> built
+          (assoc :commandLine argv :executionResult result)
+          (bind-outputs host-context)))))
+
 (defn run
   "End-to-end convenience: apply defaults and `provided-inputs`, resolve input
    File paths, build the `runtime` object and evaluation context, stage inputs,
-   then build the command line, execute, and bind outputs.
+   then build the command line, execute, and bind outputs. Tools declaring a
+   `DockerRequirement` run inside a container (see `run-docker`).
 
    `opts` are passed to `fleur.runtime/make-runtime` (e.g. `{:outdir \"...\"}`)
    plus staging controls:
    - `:basedir`       base directory for resolving relative input paths
                       (default: the current working directory)
    - `:stage-inputs?` copy every input File/Directory into `runtime.outdir`
-                      before running (default: false; paths stay absolute)."
+                      before running (default: false; paths stay absolute).
+                      Ignored for dockerized tools, which mount inputs instead."
   ([tool provided-inputs] (run tool provided-inputs {}))
   ([tool provided-inputs {:keys [basedir stage-inputs?] :as opts}]
    (let [basedir (or basedir (System/getProperty "user.dir"))
@@ -353,14 +388,17 @@
                   (assoc-inputs-with-values provided-inputs)
                   (stg/resolve-inputs basedir))
          runtime (rt/make-runtime tool opts)
-         tool (cond-> tool
-                stage-inputs? (stg/stage-inputs! (:outdir runtime)))
-         context (evaluation-context tool runtime)
-         js? (inline-javascript? tool)]
-     (stg/initial-work-dir! tool (:outdir runtime) context js?)
-     (-> tool
-         (build-command-line context)
-         (execute context)
-         (bind-outputs context)))))
+         req (docker/docker-requirement tool)]
+     (if req
+       (run-docker tool req runtime opts)
+       (let [tool (cond-> tool
+                    stage-inputs? (stg/stage-inputs! (:outdir runtime)))
+             context (evaluation-context tool runtime)
+             js? (inline-javascript? tool)]
+         (stg/initial-work-dir! tool (:outdir runtime) context js?)
+         (-> tool
+             (build-command-line context)
+             (execute context)
+             (bind-outputs context)))))))
 
 

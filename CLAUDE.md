@@ -23,7 +23,9 @@ The codebase is organized into these namespaces:
   `size`), stages inputs into the working directory, and processes
   `InitialWorkDirRequirement`.
 - `fleur.schema-salad`: Integration with schema-salad-tool for CWL preprocessing and validation  
-- `fleur.docker`: Docker image management utilities
+- `fleur.docker`: Docker execution — image resolution/pull, planning read-only
+  input mounts + a read-write outdir/tmpdir mount, remapping input File paths to
+  their in-container locations, and assembling the `docker run` argv.
 
 The workflow involves:
 1. Preprocessing CWL files with schema-salad-tool to resolve references and validate schema
@@ -68,11 +70,18 @@ clojure -X:test
 # Run a single namespace
 clojure -X:test :nses '[fleur.command-line-tool-test]'
 ```
-Test files live in `test/`. Two suites exist today:
-- `fleur.command-line-tool-test`: behaviour we consider correct (should stay green).
-- `fleur.command-line-tool-known-issues-test`: characterization tests pinning
-  current buggy behaviour. Each documents the `DESIRED:` result in a comment;
-  when a bug is fixed, flip the assertion to the desired value.
+Test files live in `test/`: `fleur.command-line-tool-test`,
+`fleur.expression-test`, `fleur.runtime-test`, `fleur.staging-test`, and
+`fleur.docker-test`. All should stay green.
+
+`fleur.docker-test`'s end-to-end container test is guarded: it runs only when a
+Docker daemon is reachable and the `busybox:latest` image is already present,
+and otherwise skips (so the suite passes without Docker). To exercise it, start
+a daemon and pull the image first:
+```bash
+dockerd >/tmp/dockerd.log 2>&1 &   # if no daemon is running
+docker pull busybox:latest
+```
 
 ## Dependencies
 
@@ -207,9 +216,13 @@ This is the algorithm `build-command-line` implements:
 - Add proper error handling throughout execution pipeline
 
 ### Phase 2: Docker Integration  
-- Expand `docker.clj` to handle volume mounting for input/output files
-- Implement proper working directory management
-- Add Docker requirement processing in command execution
+- ✅ Process `DockerRequirement` in `run`: resolve/pull the image, mount inputs
+  read-only and the outdir/tmpdir read-write, remap input paths to their
+  container locations, run the command via `docker run -w <container outdir>`,
+  and collect outputs from the host outdir (`fleur.docker`). Verified end-to-end
+  against `busybox`.
+- Still to do: `dockerFile`/`dockerLoad`/`dockerImport` image sources, running as
+  the invoking user (`--user`), and `--gpus`/network/other resource controls.
 
 ### Phase 3: Schema Validation & Testing
 - ✅ Set up test framework (`clojure.test` via Cognitect test-runner, `:test` alias)
