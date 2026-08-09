@@ -22,7 +22,13 @@ The codebase is organized into these namespaces:
   (populating CWL File metadata: `basename`, `dirname`, `nameroot`, `nameext`,
   `size`), stages inputs into the working directory, and processes
   `InitialWorkDirRequirement`.
-- `fleur.schema-salad`: Integration with schema-salad-tool for CWL preprocessing and validation  
+- `fleur.preprocess`: Backend-swappable CWL document preprocessing API. The
+  default `:clojure` backend implements a pragmatic subset — type-DSL expansion
+  (`int?`, `File[]`, the `param: int` shorthand) and inputs/outputs
+  normalization — and defers `$import`/`$graph` (throwing, with a pointer to the
+  `:schema-salad-tool` backend).
+- `fleur.schema-salad`: Integration with schema-salad-tool (the
+  `:schema-salad-tool` preprocessing backend) for full-fidelity CWL preprocessing.
 - `fleur.docker`: Docker execution — image resolution/pull, planning read-only
   input mounts + a read-write outdir/tmpdir mount, remapping input File paths to
   their in-container locations, and assembling the `docker run` argv.
@@ -80,9 +86,9 @@ clojure -X:test
 clojure -X:test :nses '[fleur.command-line-tool-test]'
 ```
 Test files live in `test/`: `fleur.command-line-tool-test`,
-`fleur.expression-test`, `fleur.expression-tool-test`, `fleur.process-test`,
-`fleur.workflow-test`, `fleur.runtime-test`, `fleur.staging-test`, and
-`fleur.docker-test`. All should stay green.
+`fleur.expression-test`, `fleur.expression-tool-test`, `fleur.preprocess-test`,
+`fleur.process-test`, `fleur.workflow-test`, `fleur.runtime-test`,
+`fleur.staging-test`, and `fleur.docker-test`. All should stay green.
 
 `fleur.docker-test`'s end-to-end container test is guarded: it runs only when a
 Docker daemon is reachable and the `busybox:latest` image is already present,
@@ -149,9 +155,10 @@ Every CWL document has a `class`. The four process types are `CommandLineTool`,
 `ExpressionTool`, `Workflow`, and `Operation`. Fleur handles `CommandLineTool`,
 `ExpressionTool`, and linear `Workflow` processes (all dispatched via
 `fleur.process/run`); `Operation`, and `Workflow` scatter/gather and conditional
-`when`, are not yet implemented. Input type shorthands (e.g. `n: int`) are not
-expanded — write inputs in full form (`n: {type: int}`) unless the document has
-been preprocessed by schema-salad-tool.
+`when`, are not yet implemented. Input type shorthands (e.g. `n: int`, `int?`,
+`File[]`) are expanded by `fleur.preprocess/preprocess`, but `run` does not apply
+it automatically yet — preprocess the document first, or write inputs in full
+form (`n: {type: int}`).
 
 ### Command-line building algorithm (CommandLineTool §4.1)
 This is the algorithm `build-command-line` implements:
@@ -206,8 +213,12 @@ This is the algorithm `build-command-line` implements:
 - **Not yet done**: `loadContents`; symlink-vs-copy policy tuning; stdout/stderr
   are captured then written to file (no streaming/binary redirection).
 - Preprocessing (`$import`/`$include`, `$graph`, identifier and type-name
-  resolution) is normally done by `schema-salad-tool`; Fleur is moving toward a
-  pure-Clojure preprocessing path so it can run without that external tool.
+  resolution) is defined by schema-salad. `fleur.preprocess` provides a
+  backend-swappable API: the native `:clojure` backend currently does type-DSL
+  expansion + inputs/outputs normalization (and errors on `$import`/`$graph`),
+  while `:schema-salad-tool` shells out for full fidelity. Preprocessing is not
+  yet applied automatically by `run` — call `fleur.preprocess/preprocess[-file]`
+  before running a document that uses these features.
 
 ## Suggested Implementation Roadmap
 
@@ -247,6 +258,11 @@ This is the algorithm `build-command-line` implements:
 
 ### Phase 3: Schema Validation & Testing
 - ✅ Set up test framework (`clojure.test` via Cognitect test-runner, `:test` alias)
+- ✅ Backend-swappable preprocessing API (`fleur.preprocess`) with a native
+  type-DSL/normalization subset and a `schema-salad-tool` backend. Still to do
+  natively: `$import`/`$include`, `$graph`, identifier/link resolution; and
+  wiring preprocessing into `run` by default. (A generated Java loader such as
+  `cwljava` is an option for full fidelity.)
 - Add clojure.spec or schema validation for CWL documents
 - Add integration tests that execute real CWL files end-to-end
 - Validate against CWL conformance tests
@@ -259,5 +275,5 @@ This is the algorithm `build-command-line` implements:
   digraph with cycle detection, output→input wiring, step `default`/`valueFrom`,
   requirement inheritance, and sub-workflow recursion (`fleur.workflow`).
 - Implement scatter/gather operations
-- Implement conditional step execution (`when`), multi-source `linkMerge`, and
-  input type-shorthand normalization
+- Implement conditional step execution (`when`) and multi-source `linkMerge`
+  (input type-shorthand normalization now lives in `fleur.preprocess`)
