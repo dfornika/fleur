@@ -80,7 +80,31 @@
             [{:host "/h/in" :container "/c/in" :mode "ro"}
              {:host "/h/out" :container "/var/spool/cwl" :mode "rw"}]
             "/var/spool/cwl"
-            ["cat" "/c/in"])))))
+            ["cat" "/c/in"]))))
+
+  (testing ":user and :network opts add --user and --network before the mounts"
+    (is (= ["docker" "run" "--rm" "-i" "--user" "1000:1000" "--network" "none"
+            "-v" "/h/out:/var/spool/cwl"
+            "-w" "/var/spool/cwl" "img" "true"]
+           (docker/docker-run-argv
+            "img"
+            [{:host "/h/out" :container "/var/spool/cwl" :mode "rw"}]
+            "/var/spool/cwl"
+            ["true"]
+            {:user "1000:1000" :network "none"})))))
+
+(deftest current-user-test
+  (testing "returns a uid:gid string"
+    (is (re-matches #"\d+:\d+" (docker/current-user)))))
+
+(deftest network-arg-test
+  (testing "network is denied by default (no NetworkAccess requirement)"
+    (is (= "none" (docker/network-arg {} nil false))))
+  (testing "denied when NetworkAccess is false, allowed when true"
+    (is (= "none" (docker/network-arg
+                   {:requirements [{:class "NetworkAccess" :networkAccess false}]} nil false)))
+    (is (nil? (docker/network-arg
+               {:hints [{:class "NetworkAccess" :networkAccess true}]} nil false)))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; End-to-end container execution (requires a Docker daemon + busybox image)
@@ -110,6 +134,10 @@
           (testing "the command is a docker run wrapping the tool"
             (is (= ["docker" "run" "--rm" "-i"] (take 4 cmd)))
             (is (some #{"busybox:latest"} cmd)))
+          (testing "runs as the invoking user with network disabled by default"
+            (is (some #{"--user"} cmd))
+            (is (= ["--network" "none"]
+                   (->> cmd (drop-while #(not= "--network" %)) (take 2)))))
           (testing "the input is referenced by its container path"
             (is (some #(and (string? %) (.startsWith % "/var/lib/cwl/inputs/")) cmd)))
           (testing "the container ran and produced the bound output"

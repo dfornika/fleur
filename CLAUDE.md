@@ -221,8 +221,12 @@ This is the algorithm `build-command-line` implements:
   container locations, run the command via `docker run -w <container outdir>`,
   and collect outputs from the host outdir (`fleur.docker`). Verified end-to-end
   against `busybox`.
-- Still to do: `dockerFile`/`dockerLoad`/`dockerImport` image sources, running as
-  the invoking user (`--user`), and `--gpus`/network/other resource controls.
+- ✅ Run the container as the invoking user (`--user <uid:gid>`, default on; see
+  `run`'s `:match-user?`/`:docker-user`) so outputs aren't root-owned.
+- ✅ Honor the CWL `NetworkAccess` requirement: `docker run --network none`
+  unless `networkAccess` is enabled (`fleur.docker/network-arg`).
+- Still to do: `dockerFile`/`dockerLoad`/`dockerImport` image sources, and
+  `--gpus`/other resource controls.
 
 ### Phase 3: Schema Validation & Testing
 - ✅ Set up test framework (`clojure.test` via Cognitect test-runner, `:test` alias)

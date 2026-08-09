@@ -9,6 +9,8 @@
    lives in `fleur.command-line-tool/run`."
   (:require [clojure.java.io :as io]
             [clojure.java.shell :as shell]
+            [clojure.string :as str]
+            [fleur.expression :as expr]
             [fleur.runtime :as rt]
             [fleur.staging :as stg]))
 
@@ -125,6 +127,41 @@
                        inputs)))))
 
 ;;; ---------------------------------------------------------------------------
+;;; Running as the invoking user
+;;; ---------------------------------------------------------------------------
+
+(defn current-user
+  "The invoking user's \"uid:gid\" string, so container-created outputs are owned
+   by the caller rather than root. Returns nil if it cannot be determined."
+  []
+  (or (try
+        (let [u (com.sun.security.auth.module.UnixSystem.)]
+          (str (.getUid u) ":" (.getGid u)))
+        (catch Throwable _ nil))
+      (try
+        (let [uid (str/trim (:out (shell/sh "id" "-u")))
+              gid (str/trim (:out (shell/sh "id" "-g")))]
+          (when (and (seq uid) (seq gid)) (str uid ":" gid)))
+        (catch Throwable _ nil))))
+
+;;; ---------------------------------------------------------------------------
+;;; Network access (CWL NetworkAccess requirement)
+;;; ---------------------------------------------------------------------------
+
+(defn network-arg
+  "The `docker run --network` value to use, or nil to leave Docker's default.
+   Outgoing network is denied (\"none\") unless a `NetworkAccess` requirement
+   requests it (`networkAccess` truthy; may be an expression, evaluated against
+   `context`). This matches the CWL default that a process without NetworkAccess
+   does not require network."
+  [tool context js?]
+  (let [v (:networkAccess (rt/find-requirement tool "NetworkAccess"))
+        enabled? (boolean (if (and context (string? v))
+                            (expr/evaluate v context {:js? js?})
+                            v))]
+    (when-not enabled? "none")))
+
+;;; ---------------------------------------------------------------------------
 ;;; docker run argv
 ;;; ---------------------------------------------------------------------------
 
@@ -134,9 +171,13 @@
 (defn docker-run-argv
   "Assemble the `docker run` argv wrapping `command` (a seq of tokens): remove
    the container on exit, keep stdin open, bind each mount, set the working
-   directory, and use `image`."
-  [image mounts workdir command]
-  (vec (concat ["docker" "run" "--rm" "-i"]
-               (mapcat (fn [m] ["-v" (volume-arg m)]) mounts)
-               ["-w" workdir image]
-               command)))
+   directory, and use `image`. `opts` may set `:user` (--user <uid:gid>) and
+   `:network` (--network <value>, e.g. \"none\")."
+  ([image mounts workdir command] (docker-run-argv image mounts workdir command nil))
+  ([image mounts workdir command {:keys [user network]}]
+   (vec (concat ["docker" "run" "--rm" "-i"]
+                (when user ["--user" user])
+                (when network ["--network" network])
+                (mapcat (fn [m] ["-v" (volume-arg m)]) mounts)
+                ["-w" workdir image]
+                command))))

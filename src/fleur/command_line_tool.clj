@@ -341,7 +341,7 @@
    container-relative runtime, and wrap it in `docker run`. stdout/stderr are
    captured and written to the host outdir (which is the mounted container
    outdir), so `bind-outputs` collects results from the host side."
-  [tool req runtime opts]
+  [tool req runtime {:keys [match-user? docker-user] :or {match-user? true} :as opts}]
   (let [js? (inline-javascript? tool)
         host-outdir (:outdir runtime)
         c-outdir (docker/container-outdir req)
@@ -356,10 +356,13 @@
                       as-path)
         stdout-name (when (:stdout tool) (expr/evaluate (:stdout tool) c-context {:js? js?}))
         stderr-name (when (:stderr tool) (expr/evaluate (:stderr tool) c-context {:js? js?}))
+        user (or docker-user (when match-user? (docker/current-user)))
+        network (docker/network-arg tool c-context js?)
         image (docker/ensure-image! req)]
     (stg/initial-work-dir! tool host-outdir c-context js?)
     (let [built (build-command-line c-tool c-context)
-          argv (docker/docker-run-argv image mounts c-outdir (:commandLine built))
+          argv (docker/docker-run-argv image mounts c-outdir (:commandLine built)
+                                       {:user user :network network})
           result (apply shell/sh (cond-> argv stdin (conj :in (io/file stdin))))]
       (when stdout-name (spit (io/file host-outdir stdout-name) (:out result)))
       (when stderr-name (spit (io/file host-outdir stderr-name) (:err result)))
@@ -379,7 +382,11 @@
                       (default: the current working directory)
    - `:stage-inputs?` copy every input File/Directory into `runtime.outdir`
                       before running (default: false; paths stay absolute).
-                      Ignored for dockerized tools, which mount inputs instead."
+                      Ignored for dockerized tools, which mount inputs instead.
+   - `:match-user?`   for dockerized tools, run the container as the invoking
+                      user so outputs are owned by the caller (default: true).
+   - `:docker-user`   explicit `docker run --user` value (overrides
+                      `:match-user?`), e.g. \"0:0\" to run as root."
   ([tool provided-inputs] (run tool provided-inputs {}))
   ([tool provided-inputs {:keys [basedir stage-inputs?] :as opts}]
    (let [basedir (or basedir (System/getProperty "user.dir"))
