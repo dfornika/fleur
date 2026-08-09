@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Fleur is a Clojure library for running Common Workflow Language (CWL) workflows. It currently provides functionality to parse, execute, and manage CWL CommandLineTools, with support for Docker containers and schema validation via schema-salad. Though most of that functionality is currently incomplete and not thoroughly tested. It will also support running CWL workflows, though that hasn't been implemented yet.
+Fleur is a Clojure library for running Common Workflow Language (CWL) workflows. It currently provides functionality to parse, execute, and manage CWL CommandLineTools and ExpressionTools, with support for Docker containers and schema validation via schema-salad. Though most of that functionality is currently incomplete and not thoroughly tested. It will also support running CWL workflows, though that hasn't been implemented yet.
 
 ## Architecture
 
@@ -26,6 +26,11 @@ The codebase is organized into these namespaces:
 - `fleur.docker`: Docker execution — image resolution/pull, planning read-only
   input mounts + a read-write outdir/tmpdir mount, remapping input File paths to
   their in-container locations, and assembling the `docker run` argv.
+- `fleur.expression-tool`: Execution of `ExpressionTool` processes — evaluate
+  the tool's `expression` against the bound inputs and map the resulting object
+  onto the declared outputs.
+- `fleur.process`: Uniform entry point that runs a CWL process by dispatching on
+  its `class` (`CommandLineTool` / `ExpressionTool`).
 
 The workflow involves:
 1. Preprocessing CWL files with schema-salad-tool to resolve references and validate schema
@@ -71,8 +76,9 @@ clojure -X:test
 clojure -X:test :nses '[fleur.command-line-tool-test]'
 ```
 Test files live in `test/`: `fleur.command-line-tool-test`,
-`fleur.expression-test`, `fleur.runtime-test`, `fleur.staging-test`, and
-`fleur.docker-test`. All should stay green.
+`fleur.expression-test`, `fleur.expression-tool-test`, `fleur.process-test`,
+`fleur.runtime-test`, `fleur.staging-test`, and `fleur.docker-test`. All should
+stay green.
 
 `fleur.docker-test`'s end-to-end container test is guarded: it runs only when a
 Docker daemon is reachable and the `busybox:latest` image is already present,
@@ -133,8 +139,9 @@ or defaults.
 
 ### Process types
 Every CWL document has a `class`. The four process types are `CommandLineTool`,
-`ExpressionTool`, `Workflow`, and `Operation`. Fleur currently handles only
-`CommandLineTool`.
+`ExpressionTool`, `Workflow`, and `Operation`. Fleur handles `CommandLineTool`
+and `ExpressionTool` (dispatched via `fleur.process/run`); `Workflow` and
+`Operation` are not yet implemented.
 
 ### Command-line building algorithm (CommandLineTool §4.1)
 This is the algorithm `build-command-line` implements:
@@ -235,6 +242,8 @@ This is the algorithm `build-command-line` implements:
 - Validate against CWL conformance tests
 
 ### Phase 4: Workflow Support
-- Implement `Workflow` class parsing (currently only supports `CommandLineTool`)
-- Add step dependency resolution
+- ✅ `ExpressionTool` process class (`fleur.expression-tool`) and a class
+  dispatcher (`fleur.process/run`) covering CommandLineTool + ExpressionTool.
+- Implement `Workflow` class parsing (steps, inputs/outputs wiring)
+- Add step dependency resolution (topological order, output→input wiring)
 - Implement scatter/gather operations
