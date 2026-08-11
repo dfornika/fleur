@@ -7,7 +7,13 @@
         org.mozilla/rhino {:mvn/version "1.7.15"}
         ;; ubergraph: directed-graph model for workflow step dependencies
         ;; (topological ordering, cycle detection, visualization).
-        ubergraph/ubergraph {:mvn/version "0.9.0"}}
+        ubergraph/ubergraph {:mvn/version "0.9.0"}
+        ;; cwljava: schema-salad-generated CWL Java SDK, the default
+        ;; preprocessing backend (fleur.preprocess). Pulled from GitHub via
+        ;; JitPack (see :mvn/repos below).
+        com.github.common-workflow-language/cwljava {:mvn/version "v2.0.0"}}
+ ;; JitPack builds the cwljava artifact on demand from its GitHub repo.
+ :mvn/repos {"jitpack" {:url "https://jitpack.io"}}
  :aliases
  {:dev {:extra-paths ["dev"]
         :extra-deps {org.clojure/tools.trace {:mvn/version "0.8.0"}
