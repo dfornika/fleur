@@ -7,9 +7,12 @@
         org.mozilla/rhino {:mvn/version "1.7.15"}
         ;; ubergraph: directed-graph model for workflow step dependencies
         ;; (topological ordering, cycle detection, visualization).
-        ubergraph/ubergraph {:mvn/version "0.9.0"}}
- ;; JitPack is only used by the optional :cwljava alias below; declaring the repo
- ;; here pulls nothing on its own.
+        ubergraph/ubergraph {:mvn/version "0.9.0"}
+        ;; cwljava: schema-salad-generated CWL Java SDK, the default
+        ;; preprocessing backend (fleur.preprocess). Pulled from GitHub via
+        ;; JitPack (see :mvn/repos below).
+        com.github.common-workflow-language/cwljava {:mvn/version "v2.0.0"}}
+ ;; JitPack builds the cwljava artifact on demand from its GitHub repo.
  :mvn/repos {"jitpack" {:url "https://jitpack.io"}}
  :aliases
  {:dev {:extra-paths ["dev"]
@@ -25,9 +28,4 @@
          :extra-deps {io.github.cognitect-labs/test-runner
                       {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
          :main-opts ["-m" "cognitect.test-runner"]
-         :exec-fn cognitect.test-runner.api/test}
-  ;; Optional: the cwljava (schema-salad-generated Java SDK) preprocessing
-  ;; backend. Built on demand from GitHub via JitPack, so it is NOT part of the
-  ;; default build/CI. Enable alongside :test with `clojure -X:test:cwljava`.
-  :cwljava {:extra-deps {com.github.common-workflow-language/cwljava
-                         {:mvn/version "v2.0.0"}}}}}
+         :exec-fn cognitect.test-runner.api/test}}}

@@ -23,12 +23,12 @@ The codebase is organized into these namespaces:
   `size`), stages inputs into the working directory, and processes
   `InitialWorkDirRequirement`.
 - `fleur.preprocess`: Backend-swappable CWL document preprocessing API. The
-  default `:clojure` backend implements a pragmatic subset — type-DSL expansion
-  (`int?`, `File[]`, the `param: int` shorthand) and inputs/outputs
-  normalization — and defers `$import`/`$graph` (throwing, with a pointer to the
-  `:schema-salad-tool` backend). An exploratory `:cwljava` backend (optional,
-  loaded reflectively) uses the schema-salad-generated Java SDK for
-  full-fidelity loading and adapts its object graph back into Fleur maps.
+  default `:cwljava` backend uses the schema-salad-generated Java SDK (loaded
+  reflectively) for full-fidelity loading — `$import`/`$graph`, identifier/link
+  resolution, type/secondaryFiles DSL — and adapts its object graph back into
+  Fleur maps. A dependency-light native `:clojure` backend implements a pragmatic
+  subset (type-DSL expansion + inputs/outputs normalization; errors on
+  `$import`/`$graph`), and `:schema-salad-tool` shells out to the Python tool.
 - `fleur.schema-salad`: Integration with schema-salad-tool (the
   `:schema-salad-tool` preprocessing backend) for full-fidelity CWL preprocessing.
 - `fleur.docker`: Docker execution — image resolution/pull, planning read-only
@@ -91,14 +91,8 @@ Test files live in `test/`: `fleur.command-line-tool-test`,
 `fleur.expression-test`, `fleur.expression-tool-test`, `fleur.preprocess-test`,
 `fleur.process-test`, `fleur.workflow-test`, `fleur.runtime-test`,
 `fleur.staging-test`, `fleur.docker-test`, and `fleur.cwljava-test`. All should
-stay green.
-
-`fleur.cwljava-test` is guarded like the Docker test: it exercises the optional
-`:cwljava` backend and skips unless cwljava is on the classpath. Run it with the
-alias:
-```bash
-clojure -X:test:cwljava
-```
+stay green. `fleur.cwljava-test` exercises the default `:cwljava` backend and
+runs as part of the normal suite (cwljava is a regular dependency).
 
 `fleur.docker-test`'s end-to-end container test is guarded: it runs only when a
 Docker daemon is reachable and the `busybox:latest` image is already present,
@@ -119,9 +113,11 @@ docker pull busybox:latest
 - **ubergraph** (`ubergraph/ubergraph`): directed-graph library used by
   `fleur.workflow` for step-dependency ordering, cycle detection, and (optional)
   visualization
-- **cwljava** (optional, `:cwljava` alias): the schema-salad-generated CWL Java
-  SDK (`org.commonwl.cwlsdk.cwl1_2`), pulled from GitHub via JitPack. Powers the
-  exploratory `:cwljava` preprocessing backend; not part of the default build/CI.
+- **cwljava** (`com.github.common-workflow-language/cwljava`): the
+  schema-salad-generated CWL Java SDK (`org.commonwl.cwlsdk.cwl1_2`), pulled from
+  GitHub via JitPack (`:mvn/repos`). Powers the default `:cwljava` preprocessing
+  backend. Loaded reflectively, so it stays a runtime/classpath dependency with
+  no compile-time coupling.
 
 ## Key Data Structures
 
@@ -271,13 +267,13 @@ This is the algorithm `build-command-line` implements:
 
 ### Phase 3: Schema Validation & Testing
 - ✅ Set up test framework (`clojure.test` via Cognitect test-runner, `:test` alias)
-- ✅ Backend-swappable preprocessing API (`fleur.preprocess`) with a native
-  type-DSL/normalization subset, a `schema-salad-tool` backend, and an
-  exploratory `:cwljava` backend (optional JitPack dep; full-fidelity loading
-  adapted back to Fleur maps). Still to do: native `$import`/`$include`,
-  `$graph`, identifier/link resolution; wiring preprocessing into `run` by
-  default; and deciding whether to promote `:cwljava` (JitPack vs.
-  build-and-host/vendor) or keep growing the native subset.
+- ✅ Backend-swappable preprocessing API (`fleur.preprocess`). The default
+  `:cwljava` backend (schema-salad-generated Java SDK via JitPack) does
+  full-fidelity loading, adapted back into Fleur maps; a native `:clojure`
+  subset and a `:schema-salad-tool` shell remain available. Still to do: wire
+  preprocessing into `run` by default; optionally revisit cwljava sourcing
+  (JitPack vs. build-and-host/vendor) and grow the native subset as a
+  dependency-light fallback.
 - Add clojure.spec or schema validation for CWL documents
 - Add integration tests that execute real CWL files end-to-end
 - Validate against CWL conformance tests

@@ -190,53 +190,84 @@
     (sequential? x) (mapv shorten-ids x)
     :else           x))
 
-(defn cwljava-load-file
-  "Load and preprocess a CWL file with cwljava (via reflection), returning a
-   Fleur-style keyword-map. Requires cwljava on the classpath (`:cwljava` alias)."
-  [f]
+(defn- clj->java
+  "Convert a Clojure document into the java.util structures cwljava's
+   loadDocument(Map) expects (keyword keys -> field-name strings)."
+  [x]
+  (cond
+    (map? x)        (let [m (java.util.LinkedHashMap.)]
+                      (doseq [[k v] x] (.put m (name k) (clj->java v)))
+                      m)
+    (sequential? x) (let [l (java.util.ArrayList.)]
+                      (doseq [v x] (.add l (clj->java v)))
+                      l)
+    (keyword? x)    (name x)
+    :else           x))
+
+(defn- cwljava-load
+  "Invoke cwljava's RootLoader/loadDocument (reflectively) on `arg` of type
+   `arg-class`, then adapt the result into a Fleur-style keyword-map: convert the
+   object graph, shorten resolved ids, and normalize inputs/outputs to map form
+   (types are already resolved, so `expand-types` is just list->map here)."
+  [arg-class arg]
   (let [rl (try (Class/forName "org.commonwl.cwlsdk.cwl1_2.utils.RootLoader")
                 (catch ClassNotFoundException _
-                  (throw (ex-info "cwljava is not on the classpath — enable the :cwljava alias (e.g. `clojure -X:test:cwljava`)"
-                                  {:backend :cwljava}))))
-        m (.getMethod rl "loadDocument" (into-array Class [java.io.File]))]
-    (-> (.invoke m nil (object-array [(io/file f)]))
+                  (throw (ex-info "cwljava is not on the classpath" {:backend :cwljava}))))
+        m (.getMethod rl "loadDocument" (into-array Class [arg-class]))]
+    (-> (.invoke m nil (object-array [arg]))
         java->clj
         shorten-ids
-        ;; normalize inputs/outputs to Fleur's map form (types are already
-        ;; resolved by cwljava, so this is just list->map + idempotent expansion)
         expand-types)))
+
+(defn cwljava-load-file
+  "Load and preprocess a CWL file with cwljava, returning a Fleur-style map."
+  [f]
+  (cwljava-load java.io.File (io/file f)))
+
+(defn cwljava-load-map
+  "Preprocess an already-parsed CWL document map with cwljava."
+  [doc]
+  (cwljava-load java.util.Map (clj->java doc)))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Public API
 ;;; ---------------------------------------------------------------------------
 
+(def default-backend
+  "The preprocessing backend used when none is specified. `:cwljava` (the
+   schema-salad-generated Java loader) does full-fidelity loading; the native
+   `:clojure` subset and the `:schema-salad-tool` shell remain available."
+  :cwljava)
+
 (defn preprocess
   "Preprocess an already-parsed CWL document (a Clojure map) into a normalized
    form ready for execution. Options:
-   - `:backend`  `:clojure` (default) or `:schema-salad-tool`
+   - `:backend`  `:cwljava` (default), `:clojure`, or `:schema-salad-tool`
    - `:basedir`  base directory for (future) `$import`/`$include` resolution
+     (`:clojure` backend only)
 
    The `:schema-salad-tool` backend operates on files, not parsed maps — use
    `preprocess-file` for it."
   ([doc] (preprocess doc {}))
-  ([doc {:keys [backend basedir] :or {backend :clojure}}]
+  ([doc {:keys [backend basedir] :or {backend default-backend}}]
    (case backend
+     :cwljava (cwljava-load-map doc)
      :clojure (-> doc (resolve-imports basedir) select-graph expand-types)
-     (:schema-salad-tool :cwljava)
-     (throw (ex-info (str "The " backend " backend works on files; use preprocess-file")
+     :schema-salad-tool
+     (throw (ex-info "The :schema-salad-tool backend works on files; use preprocess-file"
                      {:backend backend}))
      (throw (ex-info (str "Unknown preprocessing backend: " backend) {:backend backend})))))
 
 (defn preprocess-file
-  "Read and preprocess a CWL file. With `:backend :clojure` (default), parses the
-   YAML and applies the native subset (basedir defaults to the file's directory).
-   With `:backend :schema-salad-tool`, delegates to schema-salad-tool for full
-   preprocessing."
+  "Read and preprocess a CWL file. With `:backend :cwljava` (default), cwljava
+   loads and fully preprocesses it. With `:backend :clojure`, parses the YAML and
+   applies the native subset (basedir defaults to the file's directory). With
+   `:backend :schema-salad-tool`, delegates to schema-salad-tool."
   ([f] (preprocess-file f {}))
-  ([f {:keys [backend] :or {backend :clojure} :as opts}]
+  ([f {:keys [backend] :or {backend default-backend} :as opts}]
    (case backend
-     :clojure (let [basedir (or (:basedir opts) (some-> (io/file f) .getAbsoluteFile .getParent))]
-                (preprocess (yaml/parse-string (slurp f)) (assoc opts :basedir basedir)))
-     :schema-salad-tool (schema-salad/preprocess-via-shell f)
      :cwljava (cwljava-load-file f)
+     :clojure (let [basedir (or (:basedir opts) (some-> (io/file f) .getAbsoluteFile .getParent))]
+                (preprocess (yaml/parse-string (slurp f)) (assoc opts :backend :clojure :basedir basedir)))
+     :schema-salad-tool (schema-salad/preprocess-via-shell f)
      (throw (ex-info (str "Unknown preprocessing backend: " backend) {:backend backend})))))
