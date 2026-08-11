@@ -1,0 +1,16 @@
+# Example inputs for variant-calling.cwl.
+# Replace the paths with your own reference genome and reads.
+# Paths are resolved relative to this job file's directory (or the runner's cwd).
+
+reference:
+  class: File
+  path: reference.fasta
+
+reads1:
+  class: File
+  path: reads_R1.fastq.gz
+
+# Omit reads2 for single-end data.
+reads2:
+  class: File
+  path: reads_R2.fastq.gz

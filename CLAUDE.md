@@ -44,7 +44,9 @@ The codebase is organized into these namespaces:
 - `fleur.workflow`: Execution of linear (static-DAG) `Workflow` processes —
   models step dependencies as an ubergraph digraph, runs steps in topological
   order (rejecting cycles), wires each step's outputs into downstream inputs and
-  the workflow outputs, and inherits requirements from the workflow onto steps.
+  the workflow outputs, inherits requirements from the workflow onto steps, and
+  resolves each step's `run` (an inline process, or a CWL file reference —
+  including the `file://` URIs cwljava produces — loaded via `fleur.preprocess`).
 - `fleur.main`: `cwl-runner`-style command-line entry point (`-main`,
   AOT-compiled into the uberjar). Parses args, loads a job file, runs the
   document via `fleur.process/run-file`, and prints the bound outputs as JSON.
@@ -305,7 +307,9 @@ This is the algorithm `build-command-line` implements:
 - ✅ `Workflow` class parsing (steps, `in`/`out`, `outputSource`; map & list
   forms) and step dependency resolution — topological order via an ubergraph
   digraph with cycle detection, output→input wiring, step `default`/`valueFrom`,
-  requirement inheritance, and sub-workflow recursion (`fleur.workflow`).
+  requirement inheritance, sub-workflow recursion, and multi-file `run:`
+  references (`fleur.workflow`). Example pipeline:
+  `workflows/variant-calling/` (bwa + samtools + bcftools).
 - Implement scatter/gather operations
 - Implement conditional step execution (`when`) and multi-source `linkMerge`
   (input type-shorthand normalization now lives in `fleur.preprocess`)
