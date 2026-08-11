@@ -38,7 +38,9 @@ The codebase is organized into these namespaces:
   the tool's `expression` against the bound inputs and map the resulting object
   onto the declared outputs.
 - `fleur.process`: Uniform entry point that runs a CWL process by dispatching on
-  its `class` (`CommandLineTool` / `ExpressionTool` / `Workflow`).
+  its `class` (`CommandLineTool` / `ExpressionTool` / `Workflow`). `run` takes an
+  already-parsed process; `run-file` preprocesses a CWL file (cwljava by default)
+  and then runs it — the end-to-end entry point for a document on disk.
 - `fleur.workflow`: Execution of linear (static-DAG) `Workflow` processes —
   models step dependencies as an ubergraph digraph, runs steps in topological
   order (rejecting cycles), wires each step's outputs into downstream inputs and
@@ -270,10 +272,13 @@ This is the algorithm `build-command-line` implements:
 - ✅ Backend-swappable preprocessing API (`fleur.preprocess`). The default
   `:cwljava` backend (schema-salad-generated Java SDK via JitPack) does
   full-fidelity loading, adapted back into Fleur maps; a native `:clojure`
-  subset and a `:schema-salad-tool` shell remain available. Still to do: wire
-  preprocessing into `run` by default; optionally revisit cwljava sourcing
-  (JitPack vs. build-and-host/vendor) and grow the native subset as a
-  dependency-light fallback.
+  subset and a `:schema-salad-tool` shell remain available.
+- ✅ Preprocessing wired into execution via `fleur.process/run-file`, which
+  preprocesses a CWL file (cwljava by default; resolved workflow refs shortened
+  back to Fleur's `stepid/outputid` form) and runs it. The map-based `run`
+  stays a plain executor of an already-normalized process. Still to do:
+  optionally revisit cwljava sourcing (JitPack vs. build-and-host/vendor) and
+  grow the native subset as a dependency-light fallback.
 - Add clojure.spec or schema validation for CWL documents
 - Add integration tests that execute real CWL files end-to-end
 - Validate against CWL conformance tests

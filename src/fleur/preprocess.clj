@@ -170,25 +170,42 @@
     (cwljava-object? x)               (bean->clj x)
     :else                             x))
 
+(defn- after-hash
+  "The fragment of a resolved identifier URI after the last `#` (or the whole
+   string when there is no `#`)."
+  [s]
+  (-> (str s) (str/split #"#") last))
+
 (defn- short-id
-  "Reduce a cwljava-resolved identifier URI to its short name (the fragment after
-   the last `#`, then the last path segment)."
+  "A cwljava-resolved identifier reduced to its leaf name (fragment, then last
+   path segment): e.g. `file:...#main/step/out` -> `out`, `#x` -> `x`."
   [id]
-  (when id
-    (-> (str id) (str/split #"#") last (str/split #"/") last)))
+  (-> (after-hash id) (str/split #"/") last))
 
 (defn- shorten-ids
-  "Rewrite `:id` fields to short names, so the adapted document matches Fleur's
-   short-identifier conventions."
+  "Rewrite cwljava's resolved identifier URIs to Fleur's short conventions:
+   `:id` -> leaf name; `:source`/`:outputSource` -> `stepid/outputid` (or a
+   workflow input id, keeping that structure); a step's `:out` entries -> their
+   leaf output names. Other values recurse."
   [x]
-  (cond
-    (map? x)        (into {} (map (fn [[k v]]
-                                    [k (if (and (= k :id) (string? v))
-                                         (short-id v)
-                                         (shorten-ids v))])
-                                  x))
-    (sequential? x) (mapv shorten-ids x)
-    :else           x))
+  (letfn [(ref-> [v] (cond
+                       (string? v)     (after-hash v)
+                       (sequential? v) (mapv #(if (string? %) (after-hash %) %) v)
+                       :else           v))
+          (leaf [v] (if (string? v) (short-id v) v))]
+    (cond
+      (map? x)        (reduce-kv
+                       (fn [m k v]
+                         (assoc m k
+                                (case k
+                                  :id                     (leaf v)
+                                  (:source :outputSource) (ref-> v)
+                                  :out                    (if (sequential? v) (mapv leaf v) v)
+                                  (shorten-ids v))))
+                       {}
+                       x)
+      (sequential? x) (mapv shorten-ids x)
+      :else           x)))
 
 (defn- clj->java
   "Convert a Clojure document into the java.util structures cwljava's
