@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+#
+# cwl-runner - wrapper that runs the Fleur CWL runner uberjar.
+#
+# Build the jar first with:  clojure -T:build uber
+# Then put this script on your PATH (symlink or copy), e.g.:
+#   ln -s "$(pwd)/bin/cwl-runner" ~/.local/bin/cwl-runner
+#
+# The jar is located, in order, from:
+#   1. $FLEUR_JAR, if set
+#   2. the newest target/cwl-runner-*-standalone.jar next to this script's repo
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -n "${FLEUR_JAR:-}" ]]; then
+  jar="$FLEUR_JAR"
+else
+  jar="$(ls -t "$here/../target/"cwl-runner-*-standalone.jar 2>/dev/null | head -1 || true)"
+fi
+
+if [[ -z "${jar:-}" || ! -f "$jar" ]]; then
+  echo "cwl-runner: uberjar not found." >&2
+  echo "  Build it with:  clojure -T:build uber" >&2
+  echo "  or set FLEUR_JAR=/path/to/cwl-runner-<version>-standalone.jar" >&2
+  exit 1
+fi
+
+exec java -jar "$jar" "$@"
