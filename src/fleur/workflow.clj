@@ -9,11 +9,12 @@
    topological order (rejecting cycles), threading each step's outputs into an
    environment that later steps and the workflow outputs read from."
   (:require [clojure.java.io :as io]
-            [clj-yaml.core :as yaml]
+            [clojure.string :as str]
             [ubergraph.core :as uber]
             [ubergraph.alg :as alg]
             [fleur.command-line-tool :as clt]
             [fleur.expression :as expr]
+            [fleur.preprocess :as pre]
             [fleur.process :as process]))
 
 ;;; ---------------------------------------------------------------------------
@@ -130,14 +131,27 @@
                                         {:js? js?})
                          (get base inp-id))]))))
 
+(defn- run-ref->path
+  "Resolve a step `run` string reference to a filesystem path: strip a `file:`
+   URI scheme (cwljava resolves `run` to `file://` URIs), and resolve relative
+   references against `basedir`."
+  [run basedir]
+  (let [p (cond
+            (str/starts-with? run "file://") (subs run (count "file://"))
+            (str/starts-with? run "file:")   (subs run (count "file:"))
+            :else                            run)]
+    (if (str/starts-with? p "/") p (str (io/file basedir p)))))
+
 (defn- step-process
-  "The process a step runs: an inline process map, or a CWL file loaded relative
-   to `basedir`."
-  [step basedir]
+  "The process a step runs: an inline process map, or a CWL file referenced by
+   `run` (loaded and preprocessed via `fleur.preprocess`). `opts` may carry a
+   `:backend` for preprocessing referenced files."
+  [step basedir opts]
   (let [run (:run step)]
     (cond
       (map? run)    run
-      (string? run) (yaml/parse-string (slurp (io/file basedir run)))
+      (string? run) (pre/preprocess-file (run-ref->path run basedir)
+                                         (select-keys opts [:backend]))
       :else         (throw (ex-info "Step :run must be a process map or a file path"
                                     {:run run})))))
 
@@ -175,7 +189,7 @@
          env0 (seed-environment inputs provided-inputs)
          env (reduce (fn [env sid]
                        (let [step (get steps sid)
-                             tool (inherit-requirements workflow (step-process step basedir))
+                             tool (inherit-requirements workflow (step-process step basedir opts))
                              job (resolve-step-inputs workflow step env)
                              result (process/run tool job opts)
                              outs (:boundOutputs result)]
