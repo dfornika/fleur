@@ -45,6 +45,9 @@ The codebase is organized into these namespaces:
   models step dependencies as an ubergraph digraph, runs steps in topological
   order (rejecting cycles), wires each step's outputs into downstream inputs and
   the workflow outputs, and inherits requirements from the workflow onto steps.
+- `fleur.main`: `cwl-runner`-style command-line entry point (`-main`,
+  AOT-compiled into the uberjar). Parses args, loads a job file, runs the
+  document via `fleur.process/run-file`, and prints the bound outputs as JSON.
 
 The workflow involves:
 1. Preprocessing CWL files with schema-salad-tool to resolve references and validate schema
@@ -74,11 +77,24 @@ clj -M:dev:nrepl
 clj -M:dev -e "(require 'portal.api) (portal.api/start)"
 ```
 
-### Building
+### Building the CLI uberjar
+The `fleur.main` namespace is a `cwl-runner`-style CLI. Build a standalone jar
+with tools.build:
 ```bash
-# Build using tools.build
-clj -T:build
+clojure -T:build uber      # -> target/cwl-runner-<version>-standalone.jar
 ```
+Run it directly, or via the wrapper in `bin/cwl-runner` (put it on your PATH):
+```bash
+java -jar target/cwl-runner-0.1.0-standalone.jar <document.cwl> [<job.json|job.yml>]
+
+ln -s "$(pwd)/bin/cwl-runner" ~/.local/bin/cwl-runner
+cwl-runner resources/linear_math.cwl job.json      # prints the outputs as JSON
+```
+The document is preprocessed (cwljava by default) and run; the bound outputs
+are written to stdout as a JSON object. `bin/cwl-runner` finds the jar via
+`$FLEUR_JAR` or the newest `target/cwl-runner-*-standalone.jar`. Options:
+`--outdir DIR`, `--backend {cwljava,clojure,schema-salad-tool}`, `--help`,
+`--version`.
 
 ### Testing
 Tests use `clojure.test` and run via the Cognitect test-runner:
