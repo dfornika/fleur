@@ -28,8 +28,8 @@ The rest of this document explains what that script does and why.
 ## Prerequisites
 
 - A JDK (preinstalled) + the `clojure`/`clj` CLI. The CLI is **not** always
-  present in the container, so the setup script installs it (system-wide via the
-  official installer) when missing.
+  present in the container, so the setup script installs it via the official
+  installer when missing (to `/usr/local` when writable, else `~/.local`).
 - **Babashka** (`bb`) — fast Clojure scripting runtime; bundles `cljfmt`.
 - **bbin** — Babashka's package manager (installs scripts as CLI binaries).
 - Optional: `parinfer-rust` for faster repairs (not installed here; the tools
@@ -78,7 +78,11 @@ mkdir -p "$HOME/.local/bin"
 # 0. Clojure CLI (skip if `clojure` is already on PATH)
 curl -sL -o /tmp/clj-install.sh \
   https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh
-bash /tmp/clj-install.sh          # installs into /usr/local (needs root/writable)
+if [ -w /usr/local ] || [ "$(id -u)" = "0" ]; then
+  bash /tmp/clj-install.sh                            # system-wide
+else
+  bash /tmp/clj-install.sh --prefix "$HOME/.local"   # user-local fallback
+fi
 
 # 1. Babashka
 curl -sL https://raw.githubusercontent.com/babashka/babashka/master/install \

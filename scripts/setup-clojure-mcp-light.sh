@@ -56,15 +56,19 @@ fi
 # container (a JDK is, but the Clojure CLI may be missing), so install it if
 # absent. It picks up the proxy truststore from JAVA_TOOL_OPTIONS on its own.
 if ! command -v clojure >/dev/null 2>&1; then
-  echo ">> Installing the Clojure CLI (system-wide via the official installer)"
+  echo ">> Installing the Clojure CLI via the official installer"
   _cljinst="$(mktemp)"
-  curl -sL -o "$_cljinst" \
+  curl -fsSL -o "$_cljinst" \
     https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh
   # The installer defaults to /usr/local; fall back gracefully if not writable.
   if [ -w /usr/local ] || [ "$(id -u)" = "0" ]; then
     bash "$_cljinst"
   else
     bash "$_cljinst" --prefix "$HOME/.local"
+  fi
+  if ! command -v clojure >/dev/null 2>&1; then
+    echo "!! Clojure CLI installation completed but 'clojure' is still not on PATH" >&2
+    exit 1
   fi
   rm -f "$_cljinst"
 else
