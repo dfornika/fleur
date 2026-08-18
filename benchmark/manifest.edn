@@ -113,7 +113,7 @@
 
  {:id          :subworkflow-inline
   :feature     :subworkflow
-  :status      :unsupported
+  :status      :supported
   :description "Inline sub-Workflow as a step's run (file-ref subworkflows work)."
   :cwl         "benchmark/subworkflow/nested.cwl"
   :job         {:x 5}

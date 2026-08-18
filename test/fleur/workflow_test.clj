@@ -98,3 +98,25 @@
           out (get-in (wf/run w {:message "hi from workflow"}) [:boundOutputs :out])]
       (is (= "echoed.txt" (:basename out)))
       (is (= "hi from workflow" (str/trim (slurp (:path out))))))))
+
+;;; ---------------------------------------------------------------------------
+;;; Inline sub-workflow (with cwljava-style over-qualified sources)
+;;; ---------------------------------------------------------------------------
+
+(deftest run-inline-subworkflow-test
+  (testing "a step whose run is an inline Workflow executes, and enclosing-scope
+            qualified sources (inner/x, inner/double/out) are canonicalized"
+    (let [inner {:class "Workflow"
+                 :inputs {:x {:type "int"}}
+                 ;; cwljava scopes these with the enclosing step id `inner`:
+                 :outputs {:result {:type "int" :outputSource "inner/increment/out"}}
+                 :steps {:double {:in {:n {:source "inner/x"}} :out [:out]
+                                  :run (et-step "${ return {out: inputs.n * 2}; }")}
+                         :increment {:in {:n {:source "inner/double/out"}} :out [:out]
+                                     :run (et-step "${ return {out: inputs.n + 1}; }")}}}
+          outer {:class "Workflow"
+                 :requirements [{:class "InlineJavascriptRequirement"}]
+                 :inputs {:x {:type "int"}}
+                 :outputs {:result {:type "int" :outputSource "inner/result"}}
+                 :steps {:inner {:in {:x {:source "x"}} :out [:result] :run inner}}}]
+      (is (= 11 (get-in (wf/run outer {:x 5}) [:boundOutputs :result]))))))
