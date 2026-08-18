@@ -110,7 +110,8 @@ clojure -X:test :nses '[fleur.command-line-tool-test]'
 Test files live in `test/`: `fleur.command-line-tool-test`,
 `fleur.expression-test`, `fleur.expression-tool-test`, `fleur.preprocess-test`,
 `fleur.process-test`, `fleur.workflow-test`, `fleur.runtime-test`,
-`fleur.staging-test`, `fleur.docker-test`, and `fleur.cwljava-test`. All should
+`fleur.staging-test`, `fleur.docker-test`, `fleur.cwljava-test`,
+`fleur.pipeline-test`, and `fleur.benchmark-test`. All should
 stay green. `fleur.cwljava-test` exercises the default `:cwljava` backend and
 runs as part of the normal suite (cwljava is a regular dependency).
 
@@ -122,6 +123,17 @@ a daemon and pull the image first:
 dockerd >/tmp/dockerd.log 2>&1 &   # if no daemon is running
 docker pull busybox:latest
 ```
+
+### Benchmark corpus
+`benchmark/` holds a growing set of semi-realistic CWL tools/workflows used as a
+development benchmark, driven by `fleur.benchmark-test` from
+`benchmark/manifest.edn`. Each case is `:supported` (must match its `:expected`
+output — a regression guard) or `:unsupported` (exercises a not-yet-implemented
+CWL feature; `:expected` is the correct spec output and the test asserts Fleur
+does **not** match yet, so the suite stays green until the feature lands and then
+turns red — the cue to promote the case). This makes the manifest an executable
+roadmap; the initial batch targets the known gaps (scatter, conditional `when`,
+`linkMerge`, `loadContents`). See `benchmark/README.md` (incl. how to add a case).
 
 ## Dependencies
 

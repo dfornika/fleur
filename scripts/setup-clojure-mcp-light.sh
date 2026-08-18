@@ -50,6 +50,27 @@ if [ ${#TS_OPTS[@]} -eq 0 ]; then
            -Djavax.net.ssl.trustStoreType=PKCS12)
 fi
 
+# --- 0. Clojure CLI -----------------------------------------------------------
+# The JVM `clojure`/`clj` CLI is what actually runs the tests, the REPL, and the
+# uberjar build. It is NOT always preinstalled in the ephemeral web/remote
+# container (a JDK is, but the Clojure CLI may be missing), so install it if
+# absent. It picks up the proxy truststore from JAVA_TOOL_OPTIONS on its own.
+if ! command -v clojure >/dev/null 2>&1; then
+  echo ">> Installing the Clojure CLI (system-wide via the official installer)"
+  _cljinst="$(mktemp)"
+  curl -sL -o "$_cljinst" \
+    https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh
+  # The installer defaults to /usr/local; fall back gracefully if not writable.
+  if [ -w /usr/local ] || [ "$(id -u)" = "0" ]; then
+    bash "$_cljinst"
+  else
+    bash "$_cljinst" --prefix "$HOME/.local"
+  fi
+  rm -f "$_cljinst"
+else
+  echo ">> Clojure CLI already installed: $(clojure --version 2>/dev/null || echo present)"
+fi
+
 # --- 1. Babashka --------------------------------------------------------------
 if ! command -v bb >/dev/null 2>&1; then
   echo ">> Installing Babashka into $LOCAL_BIN"

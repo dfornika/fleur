@@ -1,0 +1,73 @@
+# Fleur benchmark corpus
+
+A growing set of semi-realistic CWL tools and workflows used as a **development
+benchmark**. The point is to have a repertoire of cases — including ones Fleur
+does **not** fully support yet — and measure Fleur against them as features land.
+
+## How it works
+
+Every case is listed in [`manifest.edn`](manifest.edn) and run by the test
+namespace [`fleur.benchmark-test`](../test/fleur/benchmark_test.clj), which
+executes each CWL document (via `fleur.process/run-file`) and compares the bound
+outputs against the case's `:expected`.
+
+Each case has a `:status`:
+
+| Status         | Meaning                                                                                   | Test behavior                                                                 |
+| -------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `:supported`   | Fleur should produce `:expected`.                                                         | **Fails** if the output doesn't match — a real regression guard.             |
+| `:unsupported` | Exercises a CWL feature Fleur doesn't implement yet. `:expected` is the *correct* output. | Asserts the output does **not** match yet, so the suite stays green.         |
+
+The `:unsupported` convention makes the manifest an **executable roadmap**: while
+a feature is missing the case stays green; the moment Fleur starts producing the
+correct output, the `not=` assertion fails and tells you to promote the case to
+`:supported`. So implementing a feature naturally turns a red test green (after a
+one-line manifest edit).
+
+## Running it
+
+```bash
+# As part of the whole suite
+clojure -X:test
+
+# Just the benchmark
+clojure -X:test :nses '[fleur.benchmark-test]'
+```
+
+The run prints a report, e.g.:
+
+```
+=== Fleur benchmark corpus ===
+  expr-double            expression-tool supported    = match
+  scatter-simple         scatter         unsupported  ! mismatch -> {:doubled ##NaN}
+  ...
+Supported: 2   Unsupported: 5   Total: 7
+```
+
+## Current cases
+
+| Case                  | Feature            | Status        |
+| --------------------- | ------------------ | ------------- |
+| `expr-double`         | ExpressionTool     | supported     |
+| `linear-math`         | linear Workflow    | supported     |
+| `scatter-simple`      | scatter            | unsupported   |
+| `scatter-dotproduct`  | scatter (dotproduct) | unsupported |
+| `when-skip`           | conditional `when` | unsupported   |
+| `linkmerge-flattened` | multi-source `linkMerge` | unsupported |
+| `load-contents`       | File `loadContents` | unsupported  |
+
+The initial batch deliberately targets the known gaps from `CLAUDE.md`'s
+roadmap: scatter/gather, conditional `when`, `linkMerge`, and `loadContents`.
+
+## Adding a case
+
+1. Drop the CWL (and any data files) under a feature folder in `benchmark/`.
+   Prefer **hermetic** cases — `ExpressionTool`s or `echo`/`cat`
+   `CommandLineTool`s producing simple, comparable outputs (ints, strings,
+   arrays) — so no external binaries or large data are needed and the expected
+   value is easy to pin.
+2. Add an entry to `manifest.edn` with `:id`, `:feature`, `:status`,
+   `:description`, `:cwl`, `:job` (inline input map), and `:expected` (a map of
+   output-id → value; only these keys are compared).
+3. Run the benchmark. A new `:unsupported` case should report `! mismatch`/`!
+   error`; a `:supported` case should report `= match`.
