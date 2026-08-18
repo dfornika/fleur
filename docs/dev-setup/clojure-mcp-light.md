@@ -27,13 +27,16 @@ The rest of this document explains what that script does and why.
 
 ## Prerequisites
 
+- A JDK (preinstalled) + the `clojure`/`clj` CLI. The CLI is **not** always
+  present in the container, so the setup script installs it via the official
+  installer when missing (to `/usr/local` when writable, else `~/.local`).
 - **Babashka** (`bb`) — fast Clojure scripting runtime; bundles `cljfmt`.
 - **bbin** — Babashka's package manager (installs scripts as CLI binaries).
-- A JDK + the `clojure` CLI (already present in this repo's sessions).
 - Optional: `parinfer-rust` for faster repairs (not installed here; the tools
   fall back to `cljfmt`, which ships with Babashka).
 
-Neither `bb` nor `bbin` is preinstalled in the container.
+None of the Clojure CLI, `bb`, or `bbin` is reliably preinstalled in the
+container; the setup script installs whatever is missing.
 
 ## The one real gotcha: TLS through the proxy
 
@@ -71,6 +74,15 @@ tools run offline, so this workaround is only needed at install time.
 ```bash
 export PATH="$PATH:$HOME/.local/bin"
 mkdir -p "$HOME/.local/bin"
+
+# 0. Clojure CLI (skip if `clojure` is already on PATH)
+curl -sL -o /tmp/clj-install.sh \
+  https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh
+if [ -w /usr/local ] || [ "$(id -u)" = "0" ]; then
+  bash /tmp/clj-install.sh                            # system-wide
+else
+  bash /tmp/clj-install.sh --prefix "$HOME/.local"   # user-local fallback
+fi
 
 # 1. Babashka
 curl -sL https://raw.githubusercontent.com/babashka/babashka/master/install \

@@ -1,0 +1,172 @@
+;; Fleur benchmark corpus
+;; ======================
+;;
+;; A manifest of semi-realistic CWL cases used as a development benchmark. Each
+;; case is run by `fleur.benchmark-test`, which compares the process's bound
+;; outputs against `:expected`.
+;;
+;; Every case carries a `:status`:
+;;
+;;   :supported   -- Fleur is expected to produce `:expected`. The test FAILS if
+;;                   it does not (a real regression guard).
+;;
+;;   :unsupported -- the case exercises a CWL feature Fleur does not implement
+;;                   yet. `:expected` records the CORRECT output per the CWL
+;;                   spec. The test asserts the output does NOT match yet, so the
+;;                   suite stays green while the gap exists AND turns red the
+;;                   moment the feature starts working -- the signal to flip the
+;;                   entry to :supported. This makes the manifest an executable
+;;                   roadmap.
+;;
+;; Fields:
+;;   :id          keyword, unique
+;;   :feature     keyword, the CWL feature under test
+;;   :status      :supported | :unsupported
+;;   :description one line
+;;   :cwl         path (repo-relative) to the CWL document
+;;   :job         inline input map (keyword keys)
+;;   :expected    map of output-id -> expected value (compared by these keys)
+;;   :project     optional map of output-id -> field, reducing a File output to
+;;                a comparable value before comparison. `:contents` reads+trims
+;;                the produced file's text; any other keyword pulls that field
+;;                from the File map (e.g. :basename). See fleur.benchmark-test.
+
+[{:id          :expr-double
+  :feature     :expression-tool
+  :status      :supported
+  :description "Plain ExpressionTool that doubles an int (harness sanity check)."
+  :cwl         "benchmark/supported/expr-double.cwl"
+  :job         {:x 42}
+  :expected    {:out 84}}
+
+ {:id          :linear-math
+  :feature     :workflow-linear
+  :status      :supported
+  :description "Two-step linear workflow: double then increment."
+  :cwl         "resources/linear_math.cwl"
+  :job         {:x 5}
+  :expected    {:result 11}}
+
+ {:id          :scatter-simple
+  :feature     :scatter
+  :status      :unsupported
+  :description "Scatter a step over an int[] and gather the doubled results."
+  :cwl         "benchmark/scatter/scatter-simple.cwl"
+  :job         {:numbers [1 2 3]}
+  :expected    {:doubled [2 4 6]}}
+
+ {:id          :scatter-dotproduct
+  :feature     :scatter
+  :status      :unsupported
+  :description "Scatter over two arrays in lock-step (scatterMethod: dotproduct)."
+  :cwl         "benchmark/scatter/scatter-dotproduct.cwl"
+  :job         {:a [1 2 3] :b [10 20 30]}
+  :expected    {:sums [11 22 33]}}
+
+ {:id          :when-skip
+  :feature     :conditional-when
+  :status      :unsupported
+  :description "Conditional step with when=false is skipped; output is null."
+  :cwl         "benchmark/conditional/when-skip.cwl"
+  :job         {:x 5 :run_it false}
+  :expected    {:result nil}}
+
+ {:id          :linkmerge-flattened
+  :feature     :linkmerge
+  :status      :unsupported
+  :description "Multi-source step input merged into one array (merge_flattened)."
+  :cwl         "benchmark/linkmerge/linkmerge-flattened.cwl"
+  :job         {:a 1 :b 10}
+  :expected    {:total 24}}
+
+ {:id          :load-contents
+  :feature     :load-contents
+  :status      :unsupported
+  :description "File input with loadContents: true; expression reads .contents."
+  :cwl         "benchmark/loadcontents/load-contents.cwl"
+  :job         {:f {:class "File" :path "benchmark/loadcontents/greeting.txt"}}
+  :expected    {:line_count 3}}
+
+ {:id          :diamond-dag
+  :feature     :workflow-dag
+  :status      :supported
+  :description "Diamond DAG: input fans out to two steps and back into a third."
+  :cwl         "benchmark/dag/diamond.cwl"
+  :job         {:x 10}
+  :expected    {:total 31}}
+
+ {:id          :step-valuefrom
+  :feature     :step-valuefrom
+  :status      :supported
+  :description "Step input derived by valueFrom ($(self + 100)) before the step."
+  :cwl         "benchmark/valuefrom/step-valuefrom.cwl"
+  :job         {:x 5}
+  :expected    {:result 105}}
+
+ {:id          :input-default
+  :feature     :input-default
+  :status      :supported
+  :description "ExpressionTool input default applied when the job omits it."
+  :cwl         "benchmark/defaults/input-default.cwl"
+  :job         {}
+  :expected    {:out 21}}
+
+ {:id          :subworkflow-inline
+  :feature     :subworkflow
+  :status      :unsupported
+  :description "Inline sub-Workflow as a step's run (file-ref subworkflows work)."
+  :cwl         "benchmark/subworkflow/nested.cwl"
+  :job         {:x 5}
+  :expected    {:result 11}}
+
+ {:id          :scatter-crossproduct
+  :feature     :scatter
+  :status      :unsupported
+  :description "Scatter two arrays with scatterMethod: flat_crossproduct."
+  :cwl         "benchmark/scatter/scatter-crossproduct.cwl"
+  :job         {:a [2 3] :b [10 100]}
+  :expected    {:products [20 200 30 300]}}
+
+ {:id          :linkmerge-nested
+  :feature     :linkmerge
+  :status      :unsupported
+  :description "Multi-source step input merged with linkMerge: merge_nested."
+  :cwl         "benchmark/linkmerge/linkmerge-nested.cwl"
+  :job         {:a 1 :b 2 :c 3}
+  :expected    {:total 6}}
+
+ {:id          :cat-concat
+  :feature     :commandlinetool
+  :status      :supported
+  :description "cat two input Files, capture stdout, collect the File by glob."
+  :cwl         "benchmark/cmdline/cat-concat.cwl"
+  :job         {:file1 {:class "File" :path "benchmark/cmdline/part-a.txt"}
+                :file2 {:class "File" :path "benchmark/cmdline/part-b.txt"}}
+  :project     {:out :contents}
+  :expected    {:out "alpha\nbeta\ngamma\ndelta"}}
+
+ {:id          :echo-arguments
+  :feature     :arguments-valuefrom
+  :status      :supported
+  :description "CommandLineTool arguments with a constant + valueFrom, echoed."
+  :cwl         "benchmark/cmdline/echo-arguments.cwl"
+  :job         {:name "world"}
+  :project     {:out :contents}
+  :expected    {:out "hello world"}}
+
+ {:id          :wc-lines-eval
+  :feature     :output-eval
+  :status      :unsupported
+  :description "Scalar int output via outputBinding loadContents + outputEval."
+  :cwl         "benchmark/cmdline/wc-lines.cwl"
+  :job         {:f {:class "File" :path "benchmark/cmdline/part-a.txt"}}
+  :expected    {:lines 2}}
+
+ {:id          :env-var
+  :feature     :envvar
+  :status      :unsupported
+  :description "EnvVarRequirement sets an env var from an input, echoed back."
+  :cwl         "benchmark/envvar/env-echo.cwl"
+  :job         {:msg "hi there"}
+  :project     {:out :contents}
+  :expected    {:out "hi there"}}]
