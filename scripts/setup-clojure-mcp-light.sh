@@ -58,6 +58,7 @@ fi
 if ! command -v clojure >/dev/null 2>&1; then
   echo ">> Installing the Clojure CLI via the official installer"
   _cljinst="$(mktemp)"
+  trap 'rm -f "$_cljinst"' EXIT
   curl -fsSL -o "$_cljinst" \
     https://github.com/clojure/brew-install/releases/latest/download/linux-install.sh
   # The installer defaults to /usr/local; fall back gracefully if not writable.
@@ -71,6 +72,7 @@ if ! command -v clojure >/dev/null 2>&1; then
     exit 1
   fi
   rm -f "$_cljinst"
+  trap - EXIT
 else
   echo ">> Clojure CLI already installed: $(clojure --version 2>/dev/null || echo present)"
 fi
