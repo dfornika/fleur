@@ -46,18 +46,27 @@ Supported: 2   Unsupported: 5   Total: 7
 
 ## Current cases
 
-| Case                  | Feature            | Status        |
-| --------------------- | ------------------ | ------------- |
-| `expr-double`         | ExpressionTool     | supported     |
-| `linear-math`         | linear Workflow    | supported     |
-| `scatter-simple`      | scatter            | unsupported   |
-| `scatter-dotproduct`  | scatter (dotproduct) | unsupported |
-| `when-skip`           | conditional `when` | unsupported   |
-| `linkmerge-flattened` | multi-source `linkMerge` | unsupported |
-| `load-contents`       | File `loadContents` | unsupported  |
+| Case                   | Feature                    | Status      |
+| ---------------------- | -------------------------- | ----------- |
+| `expr-double`          | ExpressionTool             | supported   |
+| `linear-math`          | linear Workflow            | supported   |
+| `diamond-dag`          | non-linear static DAG      | supported   |
+| `step-valuefrom`       | step-input `valueFrom`     | supported   |
+| `input-default`        | input `default`            | supported   |
+| `scatter-simple`       | scatter                    | unsupported |
+| `scatter-dotproduct`   | scatter (dotproduct)       | unsupported |
+| `scatter-crossproduct` | scatter (flat_crossproduct) | unsupported |
+| `when-skip`            | conditional `when`         | unsupported |
+| `linkmerge-flattened`  | multi-source `linkMerge` (flattened) | unsupported |
+| `linkmerge-nested`     | multi-source `linkMerge` (nested) | unsupported |
+| `subworkflow-inline`   | inline sub-`Workflow` run  | unsupported |
+| `load-contents`        | File `loadContents`        | unsupported |
 
-The initial batch deliberately targets the known gaps from `CLAUDE.md`'s
-roadmap: scatter/gather, conditional `when`, `linkMerge`, and `loadContents`.
+The corpus targets the known gaps from `CLAUDE.md`'s roadmap — scatter/gather,
+conditional `when`, `linkMerge`, `loadContents` — alongside supported baselines
+(linear/DAG workflows, step `valueFrom`, input defaults) that guard against
+regressions. `subworkflow-inline` was added after the benchmark surfaced that
+inline sub-`Workflow` steps aren't accepted yet (file-referenced ones are).
 
 ## Adding a case
 
