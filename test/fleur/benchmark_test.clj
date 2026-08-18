@@ -14,6 +14,7 @@
    See benchmark/README.md for the full story."
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest testing is]]
             [fleur.process :as process]))
 
@@ -22,15 +23,33 @@
 (defn- load-manifest []
   (edn/read-string (slurp (io/file manifest-path))))
 
+(defn- project-value
+  "Reduce a bound output value to something comparable, per a `:project` field.
+   For File-map outputs, `:contents` reads and trims the produced file's text;
+   any other keyword pulls that field from the map (e.g. `:basename`, `:size`).
+   Non-map values (scalars, arrays) are returned unchanged."
+  [v field]
+  (cond
+    (not (map? v))        v
+    (= field :contents)   (some-> (:path v) slurp str/trim)
+    :else                 (get v field)))
+
 (defn- run-case
   "Run one benchmark case. Returns a map with `:outcome` one of :match,
    :mismatch, or :error, plus `:actual` (or `:error`). A case matches when the
    process's bound outputs agree with `:expected` on exactly the expected keys
-   (extra bound outputs, e.g. File metadata, are ignored)."
-  [{:keys [cwl job expected]}]
+   (extra bound outputs, e.g. File metadata, are ignored). An optional
+   `:project` map {output-id field} reduces File outputs to a comparable value
+   before comparison (see `project-value`)."
+  [{:keys [cwl job expected project]}]
   (try
-    (let [bound   (:boundOutputs (process/run-file cwl job))
-          compare (select-keys bound (keys expected))]
+    (let [bound     (:boundOutputs (process/run-file cwl job))
+          projected (reduce-kv (fn [m oid field]
+                                 (cond-> m
+                                   (contains? m oid) (update oid project-value field)))
+                               bound
+                               (or project {}))
+          compare   (select-keys projected (keys expected))]
       (if (= expected compare)
         {:outcome :match :actual compare}
         {:outcome :mismatch :actual compare}))

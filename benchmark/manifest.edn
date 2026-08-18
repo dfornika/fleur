@@ -26,6 +26,10 @@
 ;;   :cwl         path (repo-relative) to the CWL document
 ;;   :job         inline input map (keyword keys)
 ;;   :expected    map of output-id -> expected value (compared by these keys)
+;;   :project     optional map of output-id -> field, reducing a File output to
+;;                a comparable value before comparison. `:contents` reads+trims
+;;                the produced file's text; any other keyword pulls that field
+;;                from the File map (e.g. :basename). See fleur.benchmark-test.
 
 [{:id          :expr-double
   :feature     :expression-tool
@@ -129,4 +133,40 @@
   :description "Multi-source step input merged with linkMerge: merge_nested."
   :cwl         "benchmark/linkmerge/linkmerge-nested.cwl"
   :job         {:a 1 :b 2 :c 3}
-  :expected    {:total 6}}]
+  :expected    {:total 6}}
+
+ {:id          :cat-concat
+  :feature     :commandlinetool
+  :status      :supported
+  :description "cat two input Files, capture stdout, collect the File by glob."
+  :cwl         "benchmark/cmdline/cat-concat.cwl"
+  :job         {:file1 {:class "File" :path "benchmark/cmdline/part-a.txt"}
+                :file2 {:class "File" :path "benchmark/cmdline/part-b.txt"}}
+  :project     {:out :contents}
+  :expected    {:out "alpha\nbeta\ngamma\ndelta"}}
+
+ {:id          :echo-arguments
+  :feature     :arguments-valuefrom
+  :status      :supported
+  :description "CommandLineTool arguments with a constant + valueFrom, echoed."
+  :cwl         "benchmark/cmdline/echo-arguments.cwl"
+  :job         {:name "world"}
+  :project     {:out :contents}
+  :expected    {:out "hello world"}}
+
+ {:id          :wc-lines-eval
+  :feature     :output-eval
+  :status      :unsupported
+  :description "Scalar int output via outputBinding loadContents + outputEval."
+  :cwl         "benchmark/cmdline/wc-lines.cwl"
+  :job         {:f {:class "File" :path "benchmark/cmdline/part-a.txt"}}
+  :expected    {:lines 2}}
+
+ {:id          :env-var
+  :feature     :envvar
+  :status      :unsupported
+  :description "EnvVarRequirement sets an env var from an input, echoed back."
+  :cwl         "benchmark/envvar/env-echo.cwl"
+  :job         {:msg "hi there"}
+  :project     {:out :contents}
+  :expected    {:out "hi there"}}]

@@ -53,6 +53,8 @@ Supported: 2   Unsupported: 5   Total: 7
 | `diamond-dag`          | non-linear static DAG      | supported   |
 | `step-valuefrom`       | step-input `valueFrom`     | supported   |
 | `input-default`        | input `default`            | supported   |
+| `cat-concat`           | CommandLineTool (stdout/glob) | supported |
+| `echo-arguments`       | `arguments` + `valueFrom`  | supported   |
 | `scatter-simple`       | scatter                    | unsupported |
 | `scatter-dotproduct`   | scatter (dotproduct)       | unsupported |
 | `scatter-crossproduct` | scatter (flat_crossproduct) | unsupported |
@@ -61,12 +63,26 @@ Supported: 2   Unsupported: 5   Total: 7
 | `linkmerge-nested`     | multi-source `linkMerge` (nested) | unsupported |
 | `subworkflow-inline`   | inline sub-`Workflow` run  | unsupported |
 | `load-contents`        | File `loadContents`        | unsupported |
+| `wc-lines-eval`        | scalar output via `outputEval` | unsupported |
+| `env-var`              | `EnvVarRequirement`        | unsupported |
 
 The corpus targets the known gaps from `CLAUDE.md`'s roadmap — scatter/gather,
 conditional `when`, `linkMerge`, `loadContents` — alongside supported baselines
-(linear/DAG workflows, step `valueFrom`, input defaults) that guard against
-regressions. `subworkflow-inline` was added after the benchmark surfaced that
-inline sub-`Workflow` steps aren't accepted yet (file-referenced ones are).
+(ExpressionTools, linear/DAG workflows, real CommandLineTools, step `valueFrom`,
+input defaults) that guard against regressions.
+
+Building the corpus also surfaced three gaps not previously called out: inline
+sub-`Workflow` steps aren't accepted (file-referenced ones are), scalar outputs
+via `outputBinding` `loadContents`+`outputEval` report "Unsupported output type",
+and `EnvVarRequirement` variables aren't set in the tool environment.
+
+### Comparing File outputs
+
+CommandLineTool cases usually produce File outputs. A case's optional `:project`
+map reduces a File output to a comparable value before comparison:
+`{:out :contents}` reads and trims the produced file's text; any other keyword
+(e.g. `:basename`) pulls that field from the File map. Scalar/array outputs need
+no projection.
 
 ## Adding a case
 
@@ -77,6 +93,7 @@ inline sub-`Workflow` steps aren't accepted yet (file-referenced ones are).
    value is easy to pin.
 2. Add an entry to `manifest.edn` with `:id`, `:feature`, `:status`,
    `:description`, `:cwl`, `:job` (inline input map), and `:expected` (a map of
-   output-id → value; only these keys are compared).
+   output-id → value; only these keys are compared). For File outputs, add a
+   `:project` map (see above) so the comparison sees a scalar.
 3. Run the benchmark. A new `:unsupported` case should report `! mismatch`/`!
    error`; a `:supported` case should report `= match`.
