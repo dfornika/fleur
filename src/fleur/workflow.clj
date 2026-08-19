@@ -1,6 +1,6 @@
 (ns fleur.workflow
-  "Execution of CWL `Workflow` processes (linear / static-DAG; no scatter or
-   conditional `when` yet).
+  "Execution of CWL `Workflow` processes (static-DAG; supports scatter/gather,
+   but not conditional `when` yet).
 
    A Workflow wires `steps` together: each step's `in` entries pull from a
    `source` (a workflow input id, or a `stepid/outputid` from an upstream step),
@@ -52,9 +52,28 @@
   [out]
   (mapv (fn [o] (keyword (name (if (map? o) (:id o) o)))) out))
 
+(defn- leaf-keyword
+  "The leaf name of a (possibly cwljava-scoped) identifier, as a keyword:
+   `file:...#add/x` -> :x, `n` -> :n, `:x` -> :x (already-normalized keywords
+   pass through)."
+  [s]
+  (-> (if (keyword? s) (name s) (str s))
+      (str/split #"#") last (str/split #"/") last keyword))
+
+(defn- normalize-scatter
+  "Normalize a step's `scatter` (a single id or a list) into a vector of leaf
+   input-id keywords."
+  [scatter]
+  (mapv leaf-keyword (if (sequential? scatter) scatter [scatter])))
+
 (defn- normalize-steps
   [steps]
-  (letfn [(norm [m] (-> m (update :in normalize-in) (update :out normalize-out)))]
+  (letfn [(norm [m] (-> m
+                        (update :in normalize-in)
+                        (update :out normalize-out)
+                        (cond->
+                         (:scatter m)       (update :scatter normalize-scatter)
+                         (:scatterMethod m) (update :scatterMethod #(keyword (name %))))))]
     (cond
       (map? steps)        (into {} (map (fn [[k v]] [(keyword (name k)) (norm v)]) steps))
       (sequential? steps) (into {} (map (fn [m] [(keyword (name (:id m))) (norm (dissoc m :id))]) steps))
@@ -213,6 +232,78 @@
     (cond-> tool
       (seq merged) (assoc :requirements merged))))
 
+;;; ---------------------------------------------------------------------------
+;;; Scatter / gather (CWL Workflow.yml "Scatter/gather")
+;;; ---------------------------------------------------------------------------
+
+(defn- cartesian
+  "Cartesian product of `colls` (a seq of seqs) as a vector of combo vectors, in
+   row-major order (the first collection varies slowest)."
+  [colls]
+  (reduce (fn [acc coll] (vec (for [a acc b coll] (conj a b))))
+          [[]]
+          colls))
+
+(defn- assoc-combo
+  "Assoc one element of each scattered input into `base-job` (a single scatter job)."
+  [base-job scatter combo]
+  (reduce (fn [j [p v]] (assoc j p v)) base-job (map vector scatter combo)))
+
+(defn- nested-jobs
+  "Build the nested job structure for `nested_crossproduct`: an N-deep nesting of
+   vectors (one level per scattered input) whose leaves are job maps."
+  [base-job scatter arrays]
+  (if (empty? scatter)
+    base-job
+    (let [[p & ps] scatter
+          [arr & arrs] arrays]
+      (mapv (fn [e] (nested-jobs (assoc base-job p e) ps arrs)) arr))))
+
+(defn- scatter-jobs
+  "Decompose `base-job` into scatter jobs over the `scatter` input ids per
+   `method`. Returns a flat vector of job maps (single input, `:dotproduct`,
+   `:flat_crossproduct`) or a nested structure of them (`:nested_crossproduct`)."
+  [base-job scatter method]
+  (let [arrays (map #(get base-job %) scatter)]
+    (if (= 1 (count scatter))
+      ;; A single scattered input: methods are equivalent to a simple scatter.
+      (mapv #(assoc base-job (first scatter) %) (first arrays))
+      (case method
+        :dotproduct
+        (let [lens (map count arrays)]
+          (when-not (apply = lens)
+            (throw (ex-info "scatterMethod dotproduct requires equal-length arrays"
+                            {:scatter scatter :lengths lens})))
+          (mapv #(assoc-combo base-job scatter (mapv (fn [a] (nth a %)) arrays))
+                (range (first lens))))
+
+        :flat_crossproduct
+        (mapv #(assoc-combo base-job scatter %) (cartesian arrays))
+
+        :nested_crossproduct
+        (nested-jobs base-job scatter arrays)
+
+        (throw (ex-info "scatterMethod is required when scattering over multiple inputs"
+                        {:scatter scatter :method method}))))))
+
+(defn- run-scatter
+  "Run `tool` once per scatter job and gather each of `out-ids` into an output
+   array (nested for `:nested_crossproduct`), returning `{out-id gathered}`. If
+   any scattered input is an empty array, all outputs are empty arrays and no
+   jobs run (CWL scatter rule)."
+  [tool base-job {:keys [scatter method out-ids opts]}]
+  (let [arrays (map #(get base-job %) scatter)]
+    (if (some empty? arrays)
+      (into {} (map (fn [o] [o []]) out-ids))
+      (let [run-leaf (fn run-leaf [node]
+                       (if (map? node)
+                         (:boundOutputs (process/run tool node opts))
+                         (mapv run-leaf node)))
+            results  (run-leaf (scatter-jobs base-job scatter method))
+            gather   (fn gather [o node]
+                       (if (map? node) (get node o) (mapv #(gather o %) node)))]
+        (into {} (map (fn [o] [o (gather o results)]) out-ids))))))
+
 (defn run
   "Run a Workflow against `provided-inputs`, returning it with `:boundOutputs`.
 
@@ -231,8 +322,12 @@
                        (let [step (get steps sid)
                              tool (inherit-requirements workflow (step-process step basedir opts))
                              job (resolve-step-inputs workflow step env)
-                             result (process/run tool job opts)
-                             outs (:boundOutputs result)]
+                             outs (if-let [scatter (:scatter step)]
+                                    (run-scatter tool job {:scatter scatter
+                                                           :method (:scatterMethod step)
+                                                           :out-ids (:out step)
+                                                           :opts opts})
+                                    (:boundOutputs (process/run tool job opts)))]
                          (reduce (fn [env out-id]
                                    (assoc env (str (name sid) "/" (name out-id))
                                           (get outs out-id)))

@@ -59,23 +59,21 @@ Supported: 2   Unsupported: 5   Total: 7
 | `load-contents`        | File `loadContents`        | supported   |
 | `wc-lines-eval`        | scalar output via `outputEval` | supported |
 | `env-var`              | `EnvVarRequirement`        | supported   |
-| `scatter-simple`       | scatter                    | unsupported |
-| `scatter-dotproduct`   | scatter (dotproduct)       | unsupported |
-| `scatter-crossproduct` | scatter (flat_crossproduct) | unsupported |
+| `scatter-simple`       | scatter                    | supported   |
+| `scatter-dotproduct`   | scatter (dotproduct)       | supported   |
+| `scatter-crossproduct` | scatter (flat_crossproduct) | supported  |
 | `when-skip`            | conditional `when`         | unsupported |
 | `linkmerge-flattened`  | multi-source `linkMerge` (flattened) | unsupported |
 | `linkmerge-nested`     | multi-source `linkMerge` (nested) | unsupported |
 
-The corpus targets the known gaps from `CLAUDE.md`'s roadmap — scatter/gather,
-conditional `when`, `linkMerge` — alongside supported baselines (ExpressionTools,
-linear/DAG workflows, real CommandLineTools, step `valueFrom`, input defaults)
-that guard against regressions.
+The corpus targets the known gaps from `CLAUDE.md`'s roadmap alongside supported
+baselines (ExpressionTools, linear/DAG workflows, real CommandLineTools, step
+`valueFrom`, input defaults, scatter/gather) that guard against regressions.
 
-Building the corpus surfaced three gaps not previously called out, all since
-fixed: inline sub-`Workflow` steps, scalar outputs via `outputBinding`
-`loadContents`+`outputEval`, and `EnvVarRequirement`. The remaining unsupported
-cases (scatter, conditional `when`, multi-source `linkMerge`) are the next
-targets.
+The remaining unsupported cases are **conditional `when`** and **multi-source
+`linkMerge`** (flattened + nested) — the next targets. Earlier rounds have since
+closed inline sub-`Workflow` steps, `loadContents`/`outputEval`,
+`EnvVarRequirement`, and scatter/gather.
 
 ### Comparing File outputs
 
