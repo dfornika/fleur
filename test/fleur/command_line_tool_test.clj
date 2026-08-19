@@ -341,6 +341,31 @@
               o (:o (:boundOutputs (t/bind-outputs tool ctx)))]
           (is (= "http://example.org/fmt" (:format o))))))))
 
+(deftest bind-outputs-load-contents-test
+  (testing "loadContents attaches the file's contents to the bound File"
+    (with-temp-dir
+      (fn [dir]
+        (spit (io/file dir "data.txt") "line1\nline2\n")
+        (let [tool {:outputs {:o {:type "File"
+                                  :outputBinding {:glob "data.txt" :loadContents true}}}}
+              ctx {:runtime {:outdir (.getPath dir)}}
+              o (:o (:boundOutputs (t/bind-outputs tool ctx)))]
+          (is (= "line1\nline2\n" (:contents o))))))))
+
+(deftest bind-outputs-output-eval-test
+  (testing "outputEval derives a scalar output from the globbed File(s) via self"
+    (with-temp-dir
+      (fn [dir]
+        (spit (io/file dir "count.txt") "  42\n")
+        (let [tool {:requirements [{:class "InlineJavascriptRequirement"}]
+                    :outputs {:n {:type "int"
+                                  :outputBinding {:glob "count.txt"
+                                                  :loadContents true
+                                                  :outputEval "$(parseInt(self[0].contents))"}}}}
+              ctx {:runtime {:outdir (.getPath dir)}}
+              n (:n (:boundOutputs (t/bind-outputs tool ctx)))]
+          (is (= 42 n)))))))
+
 ;;; ---------------------------------------------------------------------------
 ;;; Execution: stdin / stdout / stderr redirection
 ;;; ---------------------------------------------------------------------------

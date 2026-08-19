@@ -261,6 +261,24 @@
    :path path
    :basename (.getName (io/file path))})
 
+(def ^:private load-contents-limit
+  "CWL `loadContents` reads at most the first 64 KiB of a file."
+  65536)
+
+(defn- load-contents
+  "Read up to the first 64 KiB of a file as a UTF-8 string (CWL loadContents)."
+  [path]
+  (let [f (io/file path)
+        n (min load-contents-limit (.length f))
+        buf (byte-array n)]
+    (with-open [in (io/input-stream f)]
+      (let [got (loop [off 0]
+                  (if (< off n)
+                    (let [r (.read in buf off (- n off))]
+                      (if (neg? r) off (recur (+ off r))))
+                    off))]
+        (String. buf 0 got "UTF-8")))))
+
 (defn- strip-extensions
   "Remove `n` trailing extensions (text after the last dot) from `path`."
   [path n]
@@ -344,22 +362,36 @@
        (let [bound-outputs
              (into {}
                    (for [[output-key output-spec] outputs]
-                     (let [glob (get-in output-spec [:outputBinding :glob])]
+                     (let [binding (:outputBinding output-spec)
+                           glob (:glob binding)]
                        (if glob
                          (let [matching-files (->> (glob-patterns glob context js?)
                                                    (mapcat #(glob-files working-dir %))
                                                    distinct)
                                output-type (:type output-spec)
                                decorate #(-> % (attach-secondary-files output-spec context js?)
-                                             (attach-format output-spec context js?))]
+                                             (attach-format output-spec context js?))
+                               ;; loadContents attaches the first 64 KiB of each
+                               ;; globbed File as `.contents` (visible to outputEval).
+                               files (mapv (fn [p]
+                                             (cond-> (file-object p)
+                                               (:loadContents binding) (assoc :contents (load-contents p))))
+                                           matching-files)]
                            [output-key
                             (cond
+                              ;; outputEval derives the output value from the glob
+                              ;; result (bound to `self`); it may be any type.
+                              (:outputEval binding)
+                              (let [self (mapv decorate files)]
+                                (if context
+                                  (expr/evaluate (:outputEval binding) (assoc context :self self) {:js? js?})
+                                  (:outputEval binding)))
+
                               (array-output-type? output-type)
-                              (mapv (comp decorate file-object) matching-files)
+                              (mapv decorate files)
 
                               (= output-type "File")
-                              (when (seq matching-files)
-                                (decorate (file-object (first matching-files))))
+                              (when (seq files) (decorate (first files)))
 
                               :else
                               {:error (str "Unsupported output type: " output-type)})])

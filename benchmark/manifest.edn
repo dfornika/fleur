@@ -156,7 +156,7 @@
 
  {:id          :wc-lines-eval
   :feature     :output-eval
-  :status      :unsupported
+  :status      :supported
   :description "Scalar int output via outputBinding loadContents + outputEval."
   :cwl         "benchmark/cmdline/wc-lines.cwl"
   :job         {:f {:class "File" :path "benchmark/cmdline/part-a.txt"}}
