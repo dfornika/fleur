@@ -83,6 +83,45 @@
                          [k (update input :value #(resolve-value base-dir %))])
                        inputs)))))
 
+(def load-contents-limit
+  "CWL `loadContents` applies to files 64 KiB or smaller."
+  65536)
+
+(defn load-contents
+  "Read the entire contents of a UTF-8 text file for CWL `loadContents`. The file
+   must be 64 KiB or smaller; a larger file raises a fatal error (CWL v1.2:
+   `loadContents` must fail rather than silently truncate)."
+  [path]
+  (let [f   (io/file path)
+        len (.length f)]
+    (when (> len load-contents-limit)
+      (throw (ex-info (str "loadContents: file is larger than the 64 KiB limit: "
+                           path " (" len " bytes)")
+                      {:path path :size len :limit load-contents-limit})))
+    (slurp f :encoding "UTF-8")))
+
+(defn- input-loads-contents?
+  "True when an input spec requests `loadContents`, either at the top level
+   (CWL v1.1+) or on its `inputBinding` (CWL v1.0)."
+  [input]
+  (boolean (or (:loadContents input)
+               (get-in input [:inputBinding :loadContents]))))
+
+(defn load-contents-inputs
+  "Attach `:contents` (first 64 KiB) to each File input whose spec requests
+   `loadContents`. Run after `resolve-inputs` so `:path` is absolute."
+  [tool]
+  (update tool :inputs
+          (fn [inputs]
+            (into (empty inputs)
+                  (map (fn [[k input]]
+                         [k (let [v (:value input)]
+                              (if (and (input-loads-contents? input)
+                                       (file-object? v) (:path v))
+                                (assoc-in input [:value :contents] (load-contents (:path v)))
+                                input))])
+                       inputs)))))
+
 ;;; ---------------------------------------------------------------------------
 ;;; Staging into a working directory
 ;;; ---------------------------------------------------------------------------

@@ -81,7 +81,7 @@
 
  {:id          :load-contents
   :feature     :load-contents
-  :status      :unsupported
+  :status      :supported
   :description "File input with loadContents: true; expression reads .contents."
   :cwl         "benchmark/loadcontents/load-contents.cwl"
   :job         {:f {:class "File" :path "benchmark/loadcontents/greeting.txt"}}
@@ -113,7 +113,7 @@
 
  {:id          :subworkflow-inline
   :feature     :subworkflow
-  :status      :unsupported
+  :status      :supported
   :description "Inline sub-Workflow as a step's run (file-ref subworkflows work)."
   :cwl         "benchmark/subworkflow/nested.cwl"
   :job         {:x 5}
@@ -156,7 +156,7 @@
 
  {:id          :wc-lines-eval
   :feature     :output-eval
-  :status      :unsupported
+  :status      :supported
   :description "Scalar int output via outputBinding loadContents + outputEval."
   :cwl         "benchmark/cmdline/wc-lines.cwl"
   :job         {:f {:class "File" :path "benchmark/cmdline/part-a.txt"}}
@@ -164,7 +164,7 @@
 
  {:id          :env-var
   :feature     :envvar
-  :status      :unsupported
+  :status      :supported
   :description "EnvVarRequirement sets an env var from an input, echoed back."
   :cwl         "benchmark/envvar/env-echo.cwl"
   :job         {:msg "hi there"}

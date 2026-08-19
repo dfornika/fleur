@@ -61,6 +61,46 @@
       :else               {})))
 
 ;;; ---------------------------------------------------------------------------
+;;; Source canonicalization
+;;; ---------------------------------------------------------------------------
+
+(defn- canonical-source
+  "Reduce a source ref to Fleur's form given the workflow's `step-ids`.
+
+   cwljava scopes an inline sub-workflow's refs with the enclosing step id, so
+   inside a sub-workflow `x` arrives as `inner/x` and `double/out` as
+   `inner/double/out`. Fleur's convention is `stepid/outputid` (one slash) or a
+   bare workflow-input id (no slash). We keep the last two segments when the
+   second-to-last names a known step, else the last segment. Idempotent on refs
+   that are already in Fleur form."
+  [step-ids src]
+  (if-not (string? src)
+    src
+    (let [segs (str/split src #"/")
+          n    (count segs)]
+      (if (and (>= n 2)
+               (contains? step-ids (keyword (nth segs (- n 2)))))
+        (str/join "/" (subvec segs (- n 2)))
+        (peek segs)))))
+
+(defn- canonicalize-sources
+  "Rewrite every step `:in` `:source` and every output `:outputSource` in the
+   (normalized) workflow to Fleur's canonical form (see `canonical-source`)."
+  [steps outputs]
+  (let [step-ids (set (keys steps))
+        canon    (fn [s] (if (vector? s)
+                           (mapv #(canonical-source step-ids %) s)
+                           (canonical-source step-ids s)))]
+    [(into {} (for [[sid step] steps]
+                [sid (update step :in
+                             (fn [in] (into {} (for [[iid spec] in]
+                                                 [iid (cond-> spec
+                                                        (:source spec) (update :source canon))]))))]))
+     (into {} (for [[oid spec] outputs]
+                [oid (cond-> spec
+                       (:outputSource spec) (update :outputSource canon))]))]))
+
+;;; ---------------------------------------------------------------------------
 ;;; Dependency graph
 ;;; ---------------------------------------------------------------------------
 
@@ -184,8 +224,8 @@
   ([workflow provided-inputs {:keys [basedir] :as opts}]
    (let [basedir (or basedir (System/getProperty "user.dir"))
          inputs (id-map (:inputs workflow))
-         outputs (id-map (:outputs workflow))
-         steps (normalize-steps (:steps workflow))
+         [steps outputs] (canonicalize-sources (normalize-steps (:steps workflow))
+                                               (id-map (:outputs workflow)))
          env0 (seed-environment inputs provided-inputs)
          env (reduce (fn [env sid]
                        (let [step (get steps sid)

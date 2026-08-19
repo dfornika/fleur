@@ -341,6 +341,31 @@
               o (:o (:boundOutputs (t/bind-outputs tool ctx)))]
           (is (= "http://example.org/fmt" (:format o))))))))
 
+(deftest bind-outputs-load-contents-test
+  (testing "loadContents attaches the file's contents to the bound File"
+    (with-temp-dir
+      (fn [dir]
+        (spit (io/file dir "data.txt") "line1\nline2\n")
+        (let [tool {:outputs {:o {:type "File"
+                                  :outputBinding {:glob "data.txt" :loadContents true}}}}
+              ctx {:runtime {:outdir (.getPath dir)}}
+              o (:o (:boundOutputs (t/bind-outputs tool ctx)))]
+          (is (= "line1\nline2\n" (:contents o))))))))
+
+(deftest bind-outputs-output-eval-test
+  (testing "outputEval derives a scalar output from the globbed File(s) via self"
+    (with-temp-dir
+      (fn [dir]
+        (spit (io/file dir "count.txt") "  42\n")
+        (let [tool {:requirements [{:class "InlineJavascriptRequirement"}]
+                    :outputs {:n {:type "int"
+                                  :outputBinding {:glob "count.txt"
+                                                  :loadContents true
+                                                  :outputEval "$(parseInt(self[0].contents))"}}}}
+              ctx {:runtime {:outdir (.getPath dir)}}
+              n (:n (:boundOutputs (t/bind-outputs tool ctx)))]
+          (is (= 42 n)))))))
+
 ;;; ---------------------------------------------------------------------------
 ;;; Execution: stdin / stdout / stderr redirection
 ;;; ---------------------------------------------------------------------------
@@ -365,6 +390,19 @@
                 ctx {:runtime {:outdir (.getPath dir)}}]
             (t/execute tool ctx)
             (is (= "piped content" (slurp (io/file dir "o.txt"))))))))))
+
+(deftest execute-env-var-requirement-test
+  (testing "EnvVarRequirement variables (incl. expressions) are set in the env"
+    (with-temp-dir
+      (fn [dir]
+        (let [tool {:commandLine ["sh" "-c" "printf %s \"$GREETING\""]
+                    :requirements [{:class "EnvVarRequirement"
+                                    :envDef {:GREETING "$(inputs.msg)"}}]
+                    :inputs {:msg {:type "string" :value "hi there"}}
+                    :stdout "o.txt"}
+              ctx (t/evaluation-context tool {:outdir (.getPath dir)})]
+          (t/execute tool ctx)
+          (is (= "hi there" (slurp (io/file dir "o.txt")))))))))
 
 ;;; ---------------------------------------------------------------------------
 ;;; End-to-end run

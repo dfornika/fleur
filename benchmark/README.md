@@ -55,26 +55,27 @@ Supported: 2   Unsupported: 5   Total: 7
 | `input-default`        | input `default`            | supported   |
 | `cat-concat`           | CommandLineTool (stdout/glob) | supported |
 | `echo-arguments`       | `arguments` + `valueFrom`  | supported   |
+| `subworkflow-inline`   | inline sub-`Workflow` run  | supported   |
+| `load-contents`        | File `loadContents`        | supported   |
+| `wc-lines-eval`        | scalar output via `outputEval` | supported |
+| `env-var`              | `EnvVarRequirement`        | supported   |
 | `scatter-simple`       | scatter                    | unsupported |
 | `scatter-dotproduct`   | scatter (dotproduct)       | unsupported |
 | `scatter-crossproduct` | scatter (flat_crossproduct) | unsupported |
 | `when-skip`            | conditional `when`         | unsupported |
 | `linkmerge-flattened`  | multi-source `linkMerge` (flattened) | unsupported |
 | `linkmerge-nested`     | multi-source `linkMerge` (nested) | unsupported |
-| `subworkflow-inline`   | inline sub-`Workflow` run  | unsupported |
-| `load-contents`        | File `loadContents`        | unsupported |
-| `wc-lines-eval`        | scalar output via `outputEval` | unsupported |
-| `env-var`              | `EnvVarRequirement`        | unsupported |
 
 The corpus targets the known gaps from `CLAUDE.md`'s roadmap — scatter/gather,
-conditional `when`, `linkMerge`, `loadContents` — alongside supported baselines
-(ExpressionTools, linear/DAG workflows, real CommandLineTools, step `valueFrom`,
-input defaults) that guard against regressions.
+conditional `when`, `linkMerge` — alongside supported baselines (ExpressionTools,
+linear/DAG workflows, real CommandLineTools, step `valueFrom`, input defaults)
+that guard against regressions.
 
-Building the corpus also surfaced three gaps not previously called out: inline
-sub-`Workflow` steps aren't accepted (file-referenced ones are), scalar outputs
-via `outputBinding` `loadContents`+`outputEval` report "Unsupported output type",
-and `EnvVarRequirement` variables aren't set in the tool environment.
+Building the corpus surfaced three gaps not previously called out, all since
+fixed: inline sub-`Workflow` steps, scalar outputs via `outputBinding`
+`loadContents`+`outputEval`, and `EnvVarRequirement`. The remaining unsupported
+cases (scatter, conditional `when`, multi-source `linkMerge`) are the next
+targets.
 
 ### Comparing File outputs
 

@@ -57,6 +57,35 @@
                  (get-in resolved [:inputs :f :value :path])))
           (is (= 5 (get-in resolved [:inputs :n :value]))))))))
 
+(deftest load-contents-inputs-test
+  (testing "loadContents attaches file contents only to inputs that request it"
+    (with-temp-dir
+      (fn [dir]
+        (spit (io/file dir "read.txt") "hello\ncontents\n")
+        (spit (io/file dir "skip.txt") "not loaded\n")
+        (let [tool {:inputs {:loaded  {:type "File" :loadContents true
+                                       :value {:class "File" :path "read.txt"}}
+                             :plain   {:type "File"
+                                       :value {:class "File" :path "skip.txt"}}}}
+              out (-> tool (stg/resolve-inputs (.getPath dir)) stg/load-contents-inputs)]
+          (is (= "hello\ncontents\n" (get-in out [:inputs :loaded :value :contents])))
+          (is (nil? (get-in out [:inputs :plain :value :contents]))))))))
+
+(deftest load-contents-size-limit-test
+  (testing "a file 64 KiB or smaller loads"
+    (with-temp-dir
+      (fn [dir]
+        (let [f (io/file dir "ok.txt")]
+          (spit f (apply str (repeat stg/load-contents-limit \a)))
+          (is (= stg/load-contents-limit (count (stg/load-contents (.getPath f)))))))))
+  (testing "a file larger than 64 KiB raises a fatal error (no truncation)"
+    (with-temp-dir
+      (fn [dir]
+        (let [f (io/file dir "big.txt")]
+          (spit f (apply str (repeat (inc stg/load-contents-limit) \a)))
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"64 KiB"
+                                (stg/load-contents (.getPath f)))))))))
+
 ;;; ---------------------------------------------------------------------------
 ;;; Staging into a working directory
 ;;; ---------------------------------------------------------------------------

@@ -107,6 +107,34 @@
                       [(:requirements tool) (:hints tool)])]
     (boolean (some #{"InlineJavascriptRequirement"} names))))
 
+(defn- requirement
+  "The spec for requirement/hint `class-name` (a string), searching
+   `:requirements` first then `:hints`, and supporting both the list-of-maps and
+   map-keyed-by-class shapes. Returns nil when absent."
+  [tool class-name]
+  (some (fn [reqs]
+          (cond
+            (map? reqs)        (get reqs (keyword class-name))
+            (sequential? reqs) (some #(when (= class-name (some-> (:class %) name))
+                                        (dissoc % :class))
+                                     reqs)
+            :else              nil))
+        [(:requirements tool) (:hints tool)]))
+
+(defn env-vars
+  "Environment variables defined by an `EnvVarRequirement`, evaluated against
+   `context` (values may be CWL expressions). `envDef` may be a map
+   `{VAR value}` or a list `[{:envName VAR :envValue value}]`. Returns
+   `{\"VAR\" \"value\"}` (string keys/values), or nil when the requirement is absent."
+  [tool context js?]
+  (when-let [req (requirement tool "EnvVarRequirement")]
+    (let [envdef (:envDef req)
+          ev     (fn [v] (str (if context (expr/evaluate v context {:js? js?}) v)))]
+      (cond
+        (map? envdef)        (into {} (map (fn [[k v]] [(name k) (ev v)]) envdef))
+        (sequential? envdef) (into {} (map (fn [m] [(name (:envName m)) (ev (:envValue m))]) envdef))
+        :else                {}))))
+
 (defn evaluation-context
   "Build an expression-evaluation context from a tool and a `runtime` map.
    `:inputs` maps each input id to its current value; `:runtime` carries
@@ -192,9 +220,13 @@
          stdin (some-> (ev (:stdin tool)) as-path)
          stdout-name (ev (:stdout tool))
          stderr-name (ev (:stderr tool))
+         ;; EnvVarRequirement: shell/sh's :env REPLACES the environment, so merge
+         ;; the requirement's vars over the inherited parent environment.
+         env (env-vars tool context js?)
          sh-args (cond-> (vec cmd)
-                   stdin  (conj :in (io/file stdin))
-                   outdir (conj :dir outdir))
+                   stdin     (conj :in (io/file stdin))
+                   (seq env) (conj :env (merge (into {} (System/getenv)) env))
+                   outdir    (conj :dir outdir))
          result (apply shell/sh sh-args)]
      (when (and stdout-name outdir)
        (spit (io/file outdir stdout-name) (:out result)))
@@ -312,22 +344,37 @@
        (let [bound-outputs
              (into {}
                    (for [[output-key output-spec] outputs]
-                     (let [glob (get-in output-spec [:outputBinding :glob])]
+                     (let [binding (:outputBinding output-spec)
+                           glob (:glob binding)]
                        (if glob
                          (let [matching-files (->> (glob-patterns glob context js?)
                                                    (mapcat #(glob-files working-dir %))
                                                    distinct)
                                output-type (:type output-spec)
                                decorate #(-> % (attach-secondary-files output-spec context js?)
-                                             (attach-format output-spec context js?))]
+                                             (attach-format output-spec context js?))
+                               ;; loadContents attaches each globbed File's
+                               ;; contents as `.contents` (visible to outputEval);
+                               ;; a file over 64 KiB is a fatal error.
+                               files (mapv (fn [p]
+                                             (cond-> (file-object p)
+                                               (:loadContents binding) (assoc :contents (stg/load-contents p))))
+                                           matching-files)]
                            [output-key
                             (cond
+                              ;; outputEval derives the output value from the glob
+                              ;; result (bound to `self`); it may be any type.
+                              (:outputEval binding)
+                              (let [self (mapv decorate files)]
+                                (if context
+                                  (expr/evaluate (:outputEval binding) (assoc context :self self) {:js? js?})
+                                  (:outputEval binding)))
+
                               (array-output-type? output-type)
-                              (mapv (comp decorate file-object) matching-files)
+                              (mapv decorate files)
 
                               (= output-type "File")
-                              (when (seq matching-files)
-                                (decorate (file-object (first matching-files))))
+                              (when (seq files) (decorate (first files)))
 
                               :else
                               {:error (str "Unsupported output type: " output-type)})])
@@ -397,7 +444,8 @@
          tool (-> tool
                   assoc-inputs-with-default-values
                   (assoc-inputs-with-values provided-inputs)
-                  (stg/resolve-inputs basedir))
+                  (stg/resolve-inputs basedir)
+                  stg/load-contents-inputs)
          runtime (rt/make-runtime tool opts)
          req (docker/docker-requirement tool)]
      (if req
