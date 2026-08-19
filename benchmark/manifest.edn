@@ -65,7 +65,7 @@
 
  {:id          :when-skip
   :feature     :conditional-when
-  :status      :unsupported
+  :status      :supported
   :description "Conditional step with when=false is skipped; output is null."
   :cwl         "benchmark/conditional/when-skip.cwl"
   :job         {:x 5 :run_it false}
@@ -73,7 +73,7 @@
 
  {:id          :linkmerge-flattened
   :feature     :linkmerge
-  :status      :unsupported
+  :status      :supported
   :description "Multi-source step input merged into one array (merge_flattened)."
   :cwl         "benchmark/linkmerge/linkmerge-flattened.cwl"
   :job         {:a 1 :b 10}
@@ -129,7 +129,7 @@
 
  {:id          :linkmerge-nested
   :feature     :linkmerge
-  :status      :unsupported
+  :status      :supported
   :description "Multi-source step input merged with linkMerge: merge_nested."
   :cwl         "benchmark/linkmerge/linkmerge-nested.cwl"
   :job         {:a 1 :b 2 :c 3}

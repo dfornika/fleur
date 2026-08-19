@@ -1,6 +1,6 @@
 (ns fleur.workflow
   "Execution of CWL `Workflow` processes (static-DAG; supports scatter/gather,
-   but not conditional `when` yet).
+   conditional `when`, and multi-source `linkMerge`).
 
    A Workflow wires `steps` together: each step's `in` entries pull from a
    `source` (a workflow input id, or a `stepid/outputid` from an upstream step),
@@ -174,13 +174,33 @@
 (defn- resolve-source [env src]
   (if (vector? src) (mapv #(get env %) src) (get env src)))
 
+(defn- merge-sources
+  "Combine the values pulled for a multi-source step input per `linkMerge`:
+   `merge_nested` (the default) keeps one entry per source; `merge_flattened`
+   concatenates, flattening array-valued sources by one level."
+  [values link-merge]
+  (if (= "merge_flattened" (some-> link-merge name))
+    (vec (mapcat #(if (sequential? %) % [%]) values))
+    (vec values)))
+
+(defn- resolve-in
+  "Resolve one step input's value from the environment, applying `linkMerge` when
+   the input draws from multiple sources (a vector `source`)."
+  [env spec]
+  (let [src (:source spec)]
+    (cond
+      (nil? src)    nil
+      (vector? src) (merge-sources (mapv #(get env %) src) (:linkMerge spec))
+      :else         (get env src))))
+
 (defn- resolve-step-inputs
   "Resolve a step's inputs into a job map {input-id value}: pull each `source`
-   from the environment (falling back to `default`), then apply any `valueFrom`
-   with `self` bound to the value and `inputs` to the resolved job map."
+   from the environment (applying `linkMerge` for multi-source inputs, falling
+   back to `default`), then apply any `valueFrom` with `self` bound to the value
+   and `inputs` to the resolved job map."
   [workflow step env]
   (let [base (into {} (for [[inp-id spec] (:in step)]
-                        [inp-id (let [v (when (:source spec) (resolve-source env (:source spec)))]
+                        [inp-id (let [v (resolve-in env spec)]
                                   (if (and (nil? v) (contains? spec :default)) (:default spec) v))]))
         js? (clt/inline-javascript? workflow)]
     (into {} (for [[inp-id spec] (:in step)]
@@ -231,6 +251,28 @@
                       (req->class-map (:requirements tool)))]
     (cond-> tool
       (seq merged) (assoc :requirements merged))))
+
+;;; ---------------------------------------------------------------------------
+;;; Conditional execution (CWL Workflow.yml "Conditional execution")
+;;; ---------------------------------------------------------------------------
+
+(defn- passes-when?
+  "Evaluate a step's `when` guard against its input object `job`. A step with no
+   `when` always runs. The expression must evaluate to a boolean; anything else
+   is a fatal error (CWL). A skipped step produces null for all outputs."
+  [when-expr job js?]
+  (if (nil? when-expr)
+    true
+    (let [r (expr/evaluate when-expr {:inputs job :self nil :runtime {}} {:js? js?})]
+      (if (boolean? r)
+        r
+        (throw (ex-info "when expression must evaluate to true or false"
+                        {:when when-expr :result r}))))))
+
+(defn- skipped-outputs
+  "The output map of a skipped step: null for every declared output id."
+  [out-ids]
+  (into {} (map (fn [o] [o nil]) out-ids)))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Scatter / gather (CWL Workflow.yml "Scatter/gather")
@@ -292,8 +334,9 @@
    scattered input must be an array (CWL implicitly wraps a scattered parameter's
    type in an array); a missing or non-array value is a fatal error. If any
    scattered input is an *empty* array, all outputs are empty arrays and no jobs
-   run (CWL scatter rule)."
-  [tool base-job {:keys [scatter method out-ids opts]}]
+   run (CWL scatter rule). A `when` guard is evaluated per scatter job (with
+   `inputs` bound to that job); skipped jobs contribute null to the output arrays."
+  [tool base-job {:keys [scatter method out-ids when-expr js? opts]}]
   (let [arrays (map #(get base-job %) scatter)]
     (doseq [[p v] (map vector scatter arrays)]
       (when-not (sequential? v)
@@ -304,7 +347,9 @@
       (into {} (map (fn [o] [o []]) out-ids))
       (let [run-leaf (fn run-leaf [node]
                        (if (map? node)
-                         (:boundOutputs (process/run tool node opts))
+                         (if (passes-when? when-expr node js?)
+                           (:boundOutputs (process/run tool node opts))
+                           (skipped-outputs out-ids))
                          (mapv run-leaf node)))
             results  (run-leaf (scatter-jobs base-job scatter method))
             gather   (fn gather [o node]
@@ -325,15 +370,25 @@
          [steps outputs] (canonicalize-sources (normalize-steps (:steps workflow))
                                                (id-map (:outputs workflow)))
          env0 (seed-environment inputs provided-inputs)
+         js? (clt/inline-javascript? workflow)
          env (reduce (fn [env sid]
                        (let [step (get steps sid)
                              tool (inherit-requirements workflow (step-process step basedir opts))
                              job (resolve-step-inputs workflow step env)
-                             outs (if-let [scatter (:scatter step)]
-                                    (run-scatter tool job {:scatter scatter
+                             outs (cond
+                                    ;; scatter (with an optional per-job `when`)
+                                    (:scatter step)
+                                    (run-scatter tool job {:scatter (:scatter step)
                                                            :method (:scatterMethod step)
                                                            :out-ids (:out step)
+                                                           :when-expr (:when step)
+                                                           :js? js?
                                                            :opts opts})
+                                    ;; a `when` guard that evaluates false -> skip
+                                    (not (passes-when? (:when step) job js?))
+                                    (skipped-outputs (:out step))
+
+                                    :else
                                     (:boundOutputs (process/run tool job opts)))]
                          (reduce (fn [env out-id]
                                    (assoc env (str (name sid) "/" (name out-id))

@@ -191,3 +191,76 @@
                             (wf/run w {})))                      ; missing -> nil
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be an array"
                             (wf/run w {:numbers 5}))))))          ; scalar
+
+;;; ---------------------------------------------------------------------------
+;;; Conditional execution (when)
+;;; ---------------------------------------------------------------------------
+
+(defn- when-wf [when-expr]
+  {:class "Workflow"
+   :requirements [{:class "InlineJavascriptRequirement"}]
+   :inputs {:x {:type "int"} :run_it {:type "boolean"}}
+   :outputs {:result {:type ["null" "int"] :outputSource "maybe/out"}}
+   :steps {:maybe {:in {:n {:source "x"} :run_it {:source "run_it"}}
+                   :out [:out] :when when-expr
+                   :run (et-step "${ return {out: inputs.n * 2}; }")}}})
+
+(deftest conditional-when-test
+  (testing "a step whose when is false is skipped; its outputs are null"
+    (is (nil? (get-in (wf/run (when-wf "$(inputs.run_it)") {:x 5 :run_it false})
+                      [:boundOutputs :result]))))
+  (testing "a step whose when is true runs normally"
+    (is (= 10 (get-in (wf/run (when-wf "$(inputs.run_it)") {:x 5 :run_it true})
+                      [:boundOutputs :result]))))
+  (testing "a when expression that is not boolean is a fatal error"
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"true or false"
+                          (wf/run (when-wf "$(inputs.x)") {:x 5 :run_it true})))))
+
+(deftest scatter-with-when-test
+  (testing "when is evaluated per scatter job; skipped jobs are null in the array"
+    (let [w {:class "Workflow"
+             :requirements [{:class "InlineJavascriptRequirement"}]
+             :inputs {:numbers {:type "int[]"}}
+             :outputs {:doubled {:type "int[]" :outputSource "double/out"}}
+             :steps {:double {:in {:n {:source "numbers"}} :out [:out] :scatter [:n]
+                              :when "$(inputs.n > 2)"
+                              :run (et-step "${ return {out: inputs.n * 2}; }")}}}]
+      (is (= [nil nil 6 8]
+             (get-in (wf/run w {:numbers [1 2 3 4]}) [:boundOutputs :doubled]))))))
+
+;;; ---------------------------------------------------------------------------
+;;; Multi-source inputs (linkMerge)
+;;; ---------------------------------------------------------------------------
+
+(deftest linkmerge-test
+  (let [sum-step {:class "ExpressionTool"
+                  :inputs {:nums {:type "int[]"}}
+                  :outputs {:out {:type "int"}}
+                  :expression "${ return {out: inputs.nums.reduce(function(a,b){return a+b;}, 0)}; }"}
+        wf (fn [link-merge run]
+             {:class "Workflow"
+              :requirements [{:class "InlineJavascriptRequirement"}]
+              :inputs {:a {:type "int"} :b {:type "int"}}
+              :outputs {:total {:type "int" :outputSource "collect/out"}}
+              :steps {:left  {:in {:n {:source "a"}} :out [:out]
+                              :run {:class "ExpressionTool" :inputs {:n {:type "int"}}
+                                    :outputs {:out {:type "int[]"}}
+                                    :expression "${ return {out: [inputs.n, inputs.n + 1]}; }"}}
+                      :right {:in {:n {:source "b"}} :out [:out]
+                              :run {:class "ExpressionTool" :inputs {:n {:type "int"}}
+                                    :outputs {:out {:type "int[]"}}
+                                    :expression "${ return {out: [inputs.n, inputs.n + 1]}; }"}}
+                      :collect {:in {:nums {:source ["left/out" "right/out"] :linkMerge link-merge}}
+                                :out [:out] :run run}}})]
+    (testing "merge_flattened concatenates the array sources one level"
+      ;; left=[1,2], right=[10,11] -> [1,2,10,11] -> 24
+      (is (= 24 (get-in (wf/run (wf "merge_flattened" sum-step) {:a 1 :b 10})
+                        [:boundOutputs :total]))))
+    (testing "merge_nested keeps one entry per source (a nested array)"
+      (let [nested-sum {:class "ExpressionTool"
+                        :inputs {:nums {:type "Any"}}
+                        :outputs {:out {:type "int"}}
+                        :expression "${ var t=0; inputs.nums.forEach(function(a){a.forEach(function(x){t+=x;});}); return {out:t}; }"}]
+        ;; [[1,2],[10,11]] -> 24
+        (is (= 24 (get-in (wf/run (wf "merge_nested" nested-sum) {:a 1 :b 10})
+                          [:boundOutputs :total])))))))

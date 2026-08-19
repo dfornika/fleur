@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Fleur is a Clojure library for running Common Workflow Language (CWL) workflows. It currently provides functionality to parse, execute, and manage CWL CommandLineTools and ExpressionTools, with support for Docker containers and schema validation via schema-salad. It can also run static-DAG `Workflow` processes with scatter/gather; conditional (`when`) execution is not yet implemented. Though most of that functionality is currently incomplete and not thoroughly tested.
+Fleur is a Clojure library for running Common Workflow Language (CWL) workflows. It currently provides functionality to parse, execute, and manage CWL CommandLineTools and ExpressionTools, with support for Docker containers and schema validation via schema-salad. It can also run static-DAG `Workflow` processes with scatter/gather, conditional (`when`) execution, and multi-source `linkMerge`. Though most of that functionality is currently incomplete and not thoroughly tested.
 
 ## Architecture
 
@@ -194,9 +194,9 @@ or defaults.
 ### Process types
 Every CWL document has a `class`. The four process types are `CommandLineTool`,
 `ExpressionTool`, `Workflow`, and `Operation`. Fleur handles `CommandLineTool`,
-`ExpressionTool`, and static-DAG `Workflow` processes with scatter/gather (all
-dispatched via `fleur.process/run`); `Operation` and `Workflow` conditional
-`when` are not yet implemented. Input type shorthands (e.g. `n: int`, `int?`,
+`ExpressionTool`, and static-DAG `Workflow` processes with scatter/gather,
+conditional `when`, and multi-source `linkMerge` (all dispatched via
+`fleur.process/run`); `Operation` is not yet implemented. Input type shorthands (e.g. `n: int`, `int?`,
 `File[]`) are expanded by `fleur.preprocess/preprocess`, but `run` does not apply
 it automatically yet — preprocess the document first, or write inputs in full
 form (`n: {type: int}`).
@@ -330,7 +330,14 @@ This is the algorithm `build-command-line` implements:
 - ✅ Scatter/gather (`fleur.workflow`): single-input scatter and multi-input
   `scatterMethod` (`dotproduct`, `flat_crossproduct`, `nested_crossproduct`),
   gathering step outputs into (nested) arrays; an empty scatter input yields
-  empty outputs. Not yet: per-element `valueFrom` on a scattered input, and
-  `when` evaluated per scatter job.
-- Implement conditional step execution (`when`) and multi-source `linkMerge`
-  (input type-shorthand normalization now lives in `fleur.preprocess`)
+  empty outputs. Not yet: per-element `valueFrom` on a scattered input.
+- ✅ Conditional step execution (`when`, `fleur.workflow`): the guard is
+  evaluated with `inputs` bound to the step's input object (and per job for a
+  scattered step); a skipped step produces null for every output. A non-boolean
+  guard is a fatal error.
+- ✅ Multi-source step inputs (`linkMerge`): `merge_nested` (one entry per
+  source, the default) and `merge_flattened` (concatenate, flattening array
+  sources one level). Input type-shorthand normalization lives in
+  `fleur.preprocess`.
+- Remaining Workflow gaps: `Operation` process class; per-element `valueFrom` on
+  a scattered input; `linkMerge` on `outputSource`.
