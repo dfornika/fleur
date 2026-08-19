@@ -164,7 +164,7 @@
 
  {:id          :env-var
   :feature     :envvar
-  :status      :unsupported
+  :status      :supported
   :description "EnvVarRequirement sets an env var from an input, echoed back."
   :cwl         "benchmark/envvar/env-echo.cwl"
   :job         {:msg "hi there"}

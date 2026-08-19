@@ -107,6 +107,34 @@
                       [(:requirements tool) (:hints tool)])]
     (boolean (some #{"InlineJavascriptRequirement"} names))))
 
+(defn- requirement
+  "The spec for requirement/hint `class-name` (a string), searching
+   `:requirements` first then `:hints`, and supporting both the list-of-maps and
+   map-keyed-by-class shapes. Returns nil when absent."
+  [tool class-name]
+  (some (fn [reqs]
+          (cond
+            (map? reqs)        (get reqs (keyword class-name))
+            (sequential? reqs) (some #(when (= class-name (some-> (:class %) name))
+                                        (dissoc % :class))
+                                     reqs)
+            :else              nil))
+        [(:requirements tool) (:hints tool)]))
+
+(defn env-vars
+  "Environment variables defined by an `EnvVarRequirement`, evaluated against
+   `context` (values may be CWL expressions). `envDef` may be a map
+   `{VAR value}` or a list `[{:envName VAR :envValue value}]`. Returns
+   `{\"VAR\" \"value\"}` (string keys/values), or nil when the requirement is absent."
+  [tool context js?]
+  (when-let [req (requirement tool "EnvVarRequirement")]
+    (let [envdef (:envDef req)
+          ev     (fn [v] (str (if context (expr/evaluate v context {:js? js?}) v)))]
+      (cond
+        (map? envdef)        (into {} (map (fn [[k v]] [(name k) (ev v)]) envdef))
+        (sequential? envdef) (into {} (map (fn [m] [(name (:envName m)) (ev (:envValue m))]) envdef))
+        :else                {}))))
+
 (defn evaluation-context
   "Build an expression-evaluation context from a tool and a `runtime` map.
    `:inputs` maps each input id to its current value; `:runtime` carries
@@ -192,9 +220,13 @@
          stdin (some-> (ev (:stdin tool)) as-path)
          stdout-name (ev (:stdout tool))
          stderr-name (ev (:stderr tool))
+         ;; EnvVarRequirement: shell/sh's :env REPLACES the environment, so merge
+         ;; the requirement's vars over the inherited parent environment.
+         env (env-vars tool context js?)
          sh-args (cond-> (vec cmd)
-                   stdin  (conj :in (io/file stdin))
-                   outdir (conj :dir outdir))
+                   stdin     (conj :in (io/file stdin))
+                   (seq env) (conj :env (merge (into {} (System/getenv)) env))
+                   outdir    (conj :dir outdir))
          result (apply shell/sh sh-args)]
      (when (and stdout-name outdir)
        (spit (io/file outdir stdout-name) (:out result)))

@@ -366,6 +366,19 @@
             (t/execute tool ctx)
             (is (= "piped content" (slurp (io/file dir "o.txt"))))))))))
 
+(deftest execute-env-var-requirement-test
+  (testing "EnvVarRequirement variables (incl. expressions) are set in the env"
+    (with-temp-dir
+      (fn [dir]
+        (let [tool {:commandLine ["sh" "-c" "printf %s \"$GREETING\""]
+                    :requirements [{:class "EnvVarRequirement"
+                                    :envDef {:GREETING "$(inputs.msg)"}}]
+                    :inputs {:msg {:type "string" :value "hi there"}}
+                    :stdout "o.txt"}
+              ctx (t/evaluation-context tool {:outdir (.getPath dir)})]
+          (t/execute tool ctx)
+          (is (= "hi there" (slurp (io/file dir "o.txt")))))))))
+
 ;;; ---------------------------------------------------------------------------
 ;;; End-to-end run
 ;;; ---------------------------------------------------------------------------
