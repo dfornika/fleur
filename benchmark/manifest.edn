@@ -215,7 +215,7 @@
 
  {:id          :record-input
   :feature     :record-type
-  :status      :unsupported
+  :status      :supported
   :description "A record-typed input whose fields carry their own inputBinding."
   :cwl         "benchmark/record/record-input.cwl"
   :job         {:point {:x 3 :y 4}}
@@ -224,7 +224,7 @@
 
  {:id          :stdout-type
   :feature     :stdout-shortcut
-  :status      :unsupported
+  :status      :supported
   :description "The `type: stdout` output shorthand (no explicit glob)."
   :cwl         "benchmark/cmdline/stdout-type.cwl"
   :job         {}
