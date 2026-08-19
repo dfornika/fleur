@@ -77,6 +77,14 @@
     (is (= 7 (expr/evaluate 7 ctx)))
     (is (= [:a] (expr/evaluate [:a] ctx)))))
 
+(deftest single-expression-surrounding-whitespace-test
+  (testing "a lone expression with surrounding whitespace keeps its raw type"
+    (is (= 42 (expr/evaluate "  $(inputs.n)  " ctx)))
+    (is (= 42 (expr/evaluate "$(inputs.n)\n" ctx))))
+  (testing "a multi-line ${...} block scalar (trailing newline) returns its object"
+    (is (= {:line_count 3}
+           (expr/evaluate "${\n  return {line_count: 3};\n}\n" ctx {:js? true})))))
+
 (deftest parameter-reference-mode-rejects-javascript-test
   (testing "${...} needs InlineJavascriptRequirement"
     (is (thrown? clojure.lang.ExceptionInfo (expr/evaluate "${ return 1; }" ctx))))

@@ -83,6 +83,46 @@
                          [k (update input :value #(resolve-value base-dir %))])
                        inputs)))))
 
+(def ^:private load-contents-limit
+  "CWL `loadContents` reads at most the first 64 KiB of a file."
+  65536)
+
+(defn- read-contents
+  "Read up to the first 64 KiB of a file as a UTF-8 string (CWL loadContents)."
+  [path]
+  (let [f (io/file path)
+        n (min load-contents-limit (.length f))
+        buf (byte-array n)]
+    (with-open [in (io/input-stream f)]
+      (let [got (loop [off 0]
+                  (if (< off n)
+                    (let [r (.read in buf off (- n off))]
+                      (if (neg? r) off (recur (+ off r))))
+                    off))]
+        (String. buf 0 got "UTF-8")))))
+
+(defn- input-loads-contents?
+  "True when an input spec requests `loadContents`, either at the top level
+   (CWL v1.1+) or on its `inputBinding` (CWL v1.0)."
+  [input]
+  (boolean (or (:loadContents input)
+               (get-in input [:inputBinding :loadContents]))))
+
+(defn load-contents-inputs
+  "Attach `:contents` (first 64 KiB) to each File input whose spec requests
+   `loadContents`. Run after `resolve-inputs` so `:path` is absolute."
+  [tool]
+  (update tool :inputs
+          (fn [inputs]
+            (into (empty inputs)
+                  (map (fn [[k input]]
+                         [k (let [v (:value input)]
+                              (if (and (input-loads-contents? input)
+                                       (file-object? v) (:path v))
+                                (assoc-in input [:value :contents] (read-contents (:path v)))
+                                input))])
+                       inputs)))))
+
 ;;; ---------------------------------------------------------------------------
 ;;; Staging into a working directory
 ;;; ---------------------------------------------------------------------------

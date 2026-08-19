@@ -220,13 +220,19 @@
   ([v context {:keys [js?] :or {js? false}}]
    (if-not (string? v)
      v
-     (let [tokens (tokenize v)]
+     (let [tokens (tokenize v)
+           exprs  (filter map? tokens)]
        (cond
-         (every? string? tokens)
+         (empty? exprs)
          (apply str tokens)
 
-         (and (= 1 (count tokens)) (map? (first tokens)))
-         (eval-token (first tokens) context js?)
+         ;; A single expression with only surrounding whitespace keeps its raw
+         ;; type (CWL strips surrounding whitespace before this test, so a
+         ;; multi-line `${ ... }` block scalar with a trailing newline still
+         ;; returns its object rather than a JSON string).
+         (and (= 1 (count exprs))
+              (every? #(or (map? %) (str/blank? %)) tokens))
+         (eval-token (first exprs) context js?)
 
          :else
          (apply str (map #(if (string? %) % (stringify (eval-token % context js?)))

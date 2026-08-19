@@ -461,7 +461,8 @@
          tool (-> tool
                   assoc-inputs-with-default-values
                   (assoc-inputs-with-values provided-inputs)
-                  (stg/resolve-inputs basedir))
+                  (stg/resolve-inputs basedir)
+                  stg/load-contents-inputs)
          runtime (rt/make-runtime tool opts)
          req (docker/docker-requirement tool)]
      (if req

@@ -81,7 +81,7 @@
 
  {:id          :load-contents
   :feature     :load-contents
-  :status      :unsupported
+  :status      :supported
   :description "File input with loadContents: true; expression reads .contents."
   :cwl         "benchmark/loadcontents/load-contents.cwl"
   :job         {:f {:class "File" :path "benchmark/loadcontents/greeting.txt"}}

@@ -34,7 +34,8 @@
          tool (-> tool
                   clt/assoc-inputs-with-default-values
                   (clt/assoc-inputs-with-values provided-inputs)
-                  (stg/resolve-inputs basedir))
+                  (stg/resolve-inputs basedir)
+                  stg/load-contents-inputs)
          runtime (rt/make-runtime tool opts)
          context (clt/evaluation-context tool runtime)
          js? (clt/inline-javascript? tool)

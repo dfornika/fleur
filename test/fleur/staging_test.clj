@@ -57,6 +57,20 @@
                  (get-in resolved [:inputs :f :value :path])))
           (is (= 5 (get-in resolved [:inputs :n :value]))))))))
 
+(deftest load-contents-inputs-test
+  (testing "loadContents attaches file contents only to inputs that request it"
+    (with-temp-dir
+      (fn [dir]
+        (spit (io/file dir "read.txt") "hello\ncontents\n")
+        (spit (io/file dir "skip.txt") "not loaded\n")
+        (let [tool {:inputs {:loaded  {:type "File" :loadContents true
+                                       :value {:class "File" :path "read.txt"}}
+                             :plain   {:type "File"
+                                       :value {:class "File" :path "skip.txt"}}}}
+              out (-> tool (stg/resolve-inputs (.getPath dir)) stg/load-contents-inputs)]
+          (is (= "hello\ncontents\n" (get-in out [:inputs :loaded :value :contents])))
+          (is (nil? (get-in out [:inputs :plain :value :contents]))))))))
+
 ;;; ---------------------------------------------------------------------------
 ;;; Staging into a working directory
 ;;; ---------------------------------------------------------------------------
