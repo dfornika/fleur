@@ -49,7 +49,7 @@
 
  {:id          :scatter-simple
   :feature     :scatter
-  :status      :unsupported
+  :status      :supported
   :description "Scatter a step over an int[] and gather the doubled results."
   :cwl         "benchmark/scatter/scatter-simple.cwl"
   :job         {:numbers [1 2 3]}
@@ -57,7 +57,7 @@
 
  {:id          :scatter-dotproduct
   :feature     :scatter
-  :status      :unsupported
+  :status      :supported
   :description "Scatter over two arrays in lock-step (scatterMethod: dotproduct)."
   :cwl         "benchmark/scatter/scatter-dotproduct.cwl"
   :job         {:a [1 2 3] :b [10 20 30]}
@@ -121,7 +121,7 @@
 
  {:id          :scatter-crossproduct
   :feature     :scatter
-  :status      :unsupported
+  :status      :supported
   :description "Scatter two arrays with scatterMethod: flat_crossproduct."
   :cwl         "benchmark/scatter/scatter-crossproduct.cwl"
   :job         {:a [2 3] :b [10 100]}

@@ -120,3 +120,74 @@
                  :outputs {:result {:type "int" :outputSource "inner/result"}}
                  :steps {:inner {:in {:x {:source "x"}} :out [:result] :run inner}}}]
       (is (= 11 (get-in (wf/run outer {:x 5}) [:boundOutputs :result]))))))
+
+;;; ---------------------------------------------------------------------------
+;;; Scatter / gather
+;;; ---------------------------------------------------------------------------
+
+(defn- add-step []
+  {:class "ExpressionTool"
+   :inputs {:x {:type "int"} :y {:type "int"}}
+   :outputs {:out {:type "int"}}
+   :expression "${ return {out: inputs.x + inputs.y}; }"})
+
+(defn- scatter-wf
+  "A one-step workflow that scatters `add-step` over inputs a and/or b."
+  [step-in scatter method out-src]
+  {:class "Workflow"
+   :requirements [{:class "InlineJavascriptRequirement"}]
+   :inputs {:a {:type "int[]"} :b {:type "int[]"}}
+   :outputs {:result {:type "int[]" :outputSource out-src}}
+   :steps {:s (cond-> {:in step-in :out [:out] :scatter scatter :run (add-step)}
+                method (assoc :scatterMethod method))}})
+
+(deftest scatter-single-test
+  (testing "scattering one input runs the step per element and gathers an array"
+    (let [w {:class "Workflow"
+             :requirements [{:class "InlineJavascriptRequirement"}]
+             :inputs {:numbers {:type "int[]"}}
+             :outputs {:doubled {:type "int[]" :outputSource "double/out"}}
+             :steps {:double {:in {:n {:source "numbers"}} :out [:out] :scatter [:n]
+                              :run (et-step "${ return {out: inputs.n * 2}; }")}}}]
+      (is (= [2 4 6] (get-in (wf/run w {:numbers [1 2 3]}) [:boundOutputs :doubled])))))
+  (testing "an empty scatter input yields an empty output array (no jobs run)"
+    (let [w {:class "Workflow"
+             :requirements [{:class "InlineJavascriptRequirement"}]
+             :inputs {:numbers {:type "int[]"}}
+             :outputs {:doubled {:type "int[]" :outputSource "double/out"}}
+             :steps {:double {:in {:n {:source "numbers"}} :out [:out] :scatter [:n]
+                              :run (et-step "${ return {out: inputs.n * 2}; }")}}}]
+      (is (= [] (get-in (wf/run w {:numbers []}) [:boundOutputs :doubled]))))))
+
+(deftest scatter-dotproduct-test
+  (testing "dotproduct zips the arrays element-wise"
+    (let [w (scatter-wf {:x {:source "a"} :y {:source "b"}} [:x :y] :dotproduct "s/out")]
+      (is (= [11 22 33]
+             (get-in (wf/run w {:a [1 2 3] :b [10 20 30]}) [:boundOutputs :result])))))
+  (testing "dotproduct requires equal-length arrays"
+    (let [w (scatter-wf {:x {:source "a"} :y {:source "b"}} [:x :y] :dotproduct "s/out")]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"equal-length"
+                            (wf/run w {:a [1 2] :b [10]}))))))
+
+(deftest scatter-crossproduct-test
+  (testing "flat_crossproduct produces one flat array over every combination"
+    (let [w (scatter-wf {:x {:source "a"} :y {:source "b"}} [:x :y] :flat_crossproduct "s/out")]
+      (is (= [11 101 12 102]
+             (get-in (wf/run w {:a [1 2] :b [10 100]}) [:boundOutputs :result])))))
+  (testing "nested_crossproduct nests one array level per scattered input"
+    (let [w (scatter-wf {:x {:source "a"} :y {:source "b"}} [:x :y] :nested_crossproduct "s/out")]
+      (is (= [[11 101] [12 102]]
+             (get-in (wf/run w {:a [1 2] :b [10 100]}) [:boundOutputs :result]))))))
+
+(deftest scatter-non-array-input-test
+  (testing "a missing or non-array scattered input is a fatal error, not empty output"
+    (let [w {:class "Workflow"
+             :requirements [{:class "InlineJavascriptRequirement"}]
+             :inputs {:numbers {:type "int[]"}}
+             :outputs {:doubled {:type "int[]" :outputSource "double/out"}}
+             :steps {:double {:in {:n {:source "numbers"}} :out [:out] :scatter [:n]
+                              :run (et-step "${ return {out: inputs.n * 2}; }")}}}]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be an array"
+                            (wf/run w {})))                      ; missing -> nil
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be an array"
+                            (wf/run w {:numbers 5}))))))          ; scalar
