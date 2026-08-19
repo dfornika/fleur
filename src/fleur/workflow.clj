@@ -288,11 +288,18 @@
 
 (defn- run-scatter
   "Run `tool` once per scatter job and gather each of `out-ids` into an output
-   array (nested for `:nested_crossproduct`), returning `{out-id gathered}`. If
-   any scattered input is an empty array, all outputs are empty arrays and no
-   jobs run (CWL scatter rule)."
+   array (nested for `:nested_crossproduct`), returning `{out-id gathered}`. Each
+   scattered input must be an array (CWL implicitly wraps a scattered parameter's
+   type in an array); a missing or non-array value is a fatal error. If any
+   scattered input is an *empty* array, all outputs are empty arrays and no jobs
+   run (CWL scatter rule)."
   [tool base-job {:keys [scatter method out-ids opts]}]
   (let [arrays (map #(get base-job %) scatter)]
+    (doseq [[p v] (map vector scatter arrays)]
+      (when-not (sequential? v)
+        (throw (ex-info (str "scattered input " p " must be an array, got "
+                             (if (nil? v) "nil (missing)" (pr-str v)))
+                        {:input p :value v :scatter scatter}))))
     (if (some empty? arrays)
       (into {} (map (fn [o] [o []]) out-ids))
       (let [run-leaf (fn run-leaf [node]

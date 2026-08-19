@@ -178,3 +178,16 @@
     (let [w (scatter-wf {:x {:source "a"} :y {:source "b"}} [:x :y] :nested_crossproduct "s/out")]
       (is (= [[11 101] [12 102]]
              (get-in (wf/run w {:a [1 2] :b [10 100]}) [:boundOutputs :result]))))))
+
+(deftest scatter-non-array-input-test
+  (testing "a missing or non-array scattered input is a fatal error, not empty output"
+    (let [w {:class "Workflow"
+             :requirements [{:class "InlineJavascriptRequirement"}]
+             :inputs {:numbers {:type "int[]"}}
+             :outputs {:doubled {:type "int[]" :outputSource "double/out"}}
+             :steps {:double {:in {:n {:source "numbers"}} :out [:out] :scatter [:n]
+                              :run (et-step "${ return {out: inputs.n * 2}; }")}}}]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be an array"
+                            (wf/run w {})))                      ; missing -> nil
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be an array"
+                            (wf/run w {:numbers 5}))))))          ; scalar
