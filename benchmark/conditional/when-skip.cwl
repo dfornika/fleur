@@ -3,9 +3,7 @@ class: Workflow
 
 # A conditional step guarded by `when`. When the guard evaluates false the step
 # is skipped and its outputs are null (CWL Workflow conditional execution). This
-# probe runs the workflow with the guard FALSE and expects a null output; Fleur
-# does not yet honor `when`, so today it runs the step unconditionally and
-# returns a value instead of null.
+# case runs the workflow with the guard FALSE and expects a null output.
 requirements:
   InlineJavascriptRequirement: {}
 

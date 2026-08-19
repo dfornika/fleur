@@ -62,18 +62,15 @@ Supported: 2   Unsupported: 5   Total: 7
 | `scatter-simple`       | scatter                    | supported   |
 | `scatter-dotproduct`   | scatter (dotproduct)       | supported   |
 | `scatter-crossproduct` | scatter (flat_crossproduct) | supported  |
-| `when-skip`            | conditional `when`         | unsupported |
-| `linkmerge-flattened`  | multi-source `linkMerge` (flattened) | unsupported |
-| `linkmerge-nested`     | multi-source `linkMerge` (nested) | unsupported |
+| `when-skip`            | conditional `when`         | supported   |
+| `linkmerge-flattened`  | multi-source `linkMerge` (flattened) | supported |
+| `linkmerge-nested`     | multi-source `linkMerge` (nested) | supported |
 
-The corpus targets the known gaps from `CLAUDE.md`'s roadmap alongside supported
-baselines (ExpressionTools, linear/DAG workflows, real CommandLineTools, step
-`valueFrom`, input defaults, scatter/gather) that guard against regressions.
-
-The remaining unsupported cases are **conditional `when`** and **multi-source
-`linkMerge`** (flattened + nested) — the next targets. Earlier rounds have since
-closed inline sub-`Workflow` steps, `loadContents`/`outputEval`,
-`EnvVarRequirement`, and scatter/gather.
+Every case in the corpus is currently **supported** — it now serves purely as a
+regression guard across ExpressionTools, linear/DAG workflows, real
+CommandLineTools, step `valueFrom`, input defaults, scatter/gather, conditional
+`when`, and multi-source `linkMerge`. New `:unsupported` probes should be added
+as further CWL features are targeted (see below).
 
 ### Comparing File outputs
 

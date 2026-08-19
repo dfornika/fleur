@@ -4,7 +4,7 @@ class: Workflow
 # A multi-source step input merged with `linkMerge: merge_nested`: each source
 # contributes one element to an outer array (so N int sources -> int[] of length
 # N), as opposed to merge_flattened which concatenates. The collector sums the
-# nested array. Fleur does not yet implement multi-source linkMerge.
+# nested array.
 requirements:
   InlineJavascriptRequirement: {}
   MultipleInputFeatureRequirement: {}
@@ -32,7 +32,7 @@ steps:
     run:
       class: ExpressionTool
       inputs:
-        nums: { type: int[] }
+        nums: { type: "int[]" }
       outputs:
         out: { type: int }
       expression: "${ return {out: inputs.nums.reduce(function(a, b) { return a + b; }, 0)}; }"
