@@ -169,4 +169,64 @@
   :cwl         "benchmark/envvar/env-echo.cwl"
   :job         {:msg "hi there"}
   :project     {:out :contents}
-  :expected    {:out "hi there"}}]
+  :expected    {:out "hi there"}}
+
+ {:id          :scatter-reduce
+  :feature     :workflow-dag
+  :status      :supported
+  :description "Scatter a transform over an array, then reduce the gathered array."
+  :cwl         "benchmark/scatter/scatter-reduce.cwl"
+  :job         {:numbers [1 2 3]}
+  :expected    {:total 12}}
+
+ {:id          :initial-work-dir
+  :feature     :initialworkdir
+  :status      :supported
+  :description "InitialWorkDirRequirement stages a literal file; the tool reads it."
+  :cwl         "benchmark/iwdr/write-and-read.cwl"
+  :job         {}
+  :project     {:out :contents}
+  :expected    {:out "hello from the initial work dir"}}
+
+ {:id          :cat-stdin
+  :feature     :stdin
+  :status      :supported
+  :description "stdin redirection from an input File (expression-valued), captured."
+  :cwl         "benchmark/cmdline/cat-stdin.cwl"
+  :job         {:f {:class "File" :path "benchmark/cmdline/part-a.txt"}}
+  :project     {:out :contents}
+  :expected    {:out "alpha\nbeta"}}
+
+ {:id          :scatter-valuefrom
+  :feature     :scatter-valuefrom
+  :status      :unsupported
+  :description "Per-element valueFrom ($(self * 10)) on a scattered input."
+  :cwl         "benchmark/scatter/scatter-valuefrom.cwl"
+  :job         {:numbers [1 2 3]}
+  :expected    {:out [10 20 30]}}
+
+ {:id          :linkmerge-outputsource
+  :feature     :linkmerge-outputsource
+  :status      :unsupported
+  :description "linkMerge: merge_flattened on a workflow output's outputSource."
+  :cwl         "benchmark/linkmerge/linkmerge-outputsource.cwl"
+  :job         {:a 1 :b 10}
+  :expected    {:merged [1 2 10 11]}}
+
+ {:id          :record-input
+  :feature     :record-type
+  :status      :unsupported
+  :description "A record-typed input whose fields carry their own inputBinding."
+  :cwl         "benchmark/record/record-input.cwl"
+  :job         {:point {:x 3 :y 4}}
+  :project     {:out :contents}
+  :expected    {:out "3 4"}}
+
+ {:id          :stdout-type
+  :feature     :stdout-shortcut
+  :status      :unsupported
+  :description "The `type: stdout` output shorthand (no explicit glob)."
+  :cwl         "benchmark/cmdline/stdout-type.cwl"
+  :job         {}
+  :project     {:out :contents}
+  :expected    {:out "shorthand stdout"}}]

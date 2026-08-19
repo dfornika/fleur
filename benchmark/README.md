@@ -39,9 +39,9 @@ The run prints a report, e.g.:
 ```
 === Fleur benchmark corpus ===
   expr-double            expression-tool supported    = match
-  scatter-simple         scatter         unsupported  ! mismatch -> {:doubled ##NaN}
+  record-input           record-type     unsupported  ! mismatch -> {:out ""}
   ...
-Supported: 2   Unsupported: 5   Total: 7
+Supported: 20   Unsupported: 4   Total: 24
 ```
 
 ## Current cases
@@ -65,12 +65,24 @@ Supported: 2   Unsupported: 5   Total: 7
 | `when-skip`            | conditional `when`         | supported   |
 | `linkmerge-flattened`  | multi-source `linkMerge` (flattened) | supported |
 | `linkmerge-nested`     | multi-source `linkMerge` (nested) | supported |
+| `scatter-reduce`       | scatter then reduce        | supported   |
+| `initial-work-dir`     | `InitialWorkDirRequirement` | supported  |
+| `cat-stdin`            | stdin redirection          | supported   |
+| `scatter-valuefrom`    | per-element scatter `valueFrom` | unsupported |
+| `linkmerge-outputsource` | `linkMerge` on `outputSource` | unsupported |
+| `record-input`         | record-typed input binding | unsupported |
+| `stdout-type`          | `type: stdout` shorthand   | unsupported |
 
-Every case in the corpus is currently **supported** — it now serves purely as a
-regression guard across ExpressionTools, linear/DAG workflows, real
-CommandLineTools, step `valueFrom`, input defaults, scatter/gather, conditional
-`when`, and multi-source `linkMerge`. New `:unsupported` probes should be added
-as further CWL features are targeted (see below).
+The **supported** cases are regression guards spanning ExpressionTools,
+linear/DAG workflows, real CommandLineTools (stdout/glob, stdin, arguments,
+InitialWorkDir), step `valueFrom`, input defaults, scatter/gather, conditional
+`when`, and multi-source `linkMerge`.
+
+The **unsupported** cases are the current roadmap — features whose correct output
+is pinned in `:expected` and which flip to a failing test (the cue to promote)
+once implemented: per-element `valueFrom` on a scattered input, `linkMerge` on a
+workflow `outputSource`, record/object input command-line binding, and the
+`type: stdout` output shorthand.
 
 ### Comparing File outputs
 
