@@ -251,8 +251,12 @@ This is the algorithm `build-command-line` implements:
   base dir = cwd or `run`'s `:basedir`), so tools run in `runtime.outdir` still
   find their inputs. `run`'s `:stage-inputs?` copies inputs into the working dir;
   `InitialWorkDirRequirement` entries are always staged there.
-- **Not yet done**: `loadContents`; symlink-vs-copy policy tuning; stdout/stderr
-  are captured then written to file (no streaming/binary redirection).
+- **Done**: `loadContents` on File inputs (top-level or `inputBinding`, first
+  64 KiB) and on output `outputBinding` (incl. `outputEval`); `EnvVarRequirement`
+  in local (non-Docker) execution.
+- **Not yet done**: symlink-vs-copy policy tuning; stdout/stderr are captured
+  then written to file (no streaming/binary redirection); `EnvVarRequirement`
+  under Docker (`docker run -e`).
 - Preprocessing (`$import`/`$include`, `$graph`, identifier and type-name
   resolution) is defined by schema-salad. `fleur.preprocess` provides a
   backend-swappable API: the native `:clojure` backend currently does type-DSL
@@ -278,7 +282,8 @@ This is the algorithm `build-command-line` implements:
 - ✅ Populate the `runtime.*` object automatically (`fleur.runtime/make-runtime`).
 - ✅ `stdin`/`stdout`/`stderr` redirection (in `execute`).
 - ✅ Output file collection incl. `secondaryFiles` (suffix/`^` and expression
-  patterns) and `format`. Still to do: `loadContents`, output validation.
+  patterns), `format`, `loadContents`, and `outputEval` (scalar/array outputs
+  derived from globbed Files). Still to do: output validation.
 - ✅ Resolve input File paths to absolute + populate File metadata, stage inputs
   into the working directory, and process `InitialWorkDirRequirement`
   (`fleur.staging`). The `tar_extract` sample now runs end-to-end.
