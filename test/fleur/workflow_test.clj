@@ -263,4 +263,7 @@
                         :expression "${ var t=0; inputs.nums.forEach(function(a){a.forEach(function(x){t+=x;});}); return {out:t}; }"}]
         ;; [[1,2],[10,11]] -> 24
         (is (= 24 (get-in (wf/run (wf "merge_nested" nested-sum) {:a 1 :b 10})
-                          [:boundOutputs :total])))))))
+                          [:boundOutputs :total])))))
+    (testing "an unknown linkMerge method is a fatal error"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"[Uu]nknown linkMerge"
+                            (wf/run (wf "merge_bogus" sum-step) {:a 1 :b 10}))))))

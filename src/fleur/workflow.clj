@@ -176,12 +176,15 @@
 
 (defn- merge-sources
   "Combine the values pulled for a multi-source step input per `linkMerge`:
-   `merge_nested` (the default) keeps one entry per source; `merge_flattened`
-   concatenates, flattening array-valued sources by one level."
+   `merge_nested` (the default, when omitted) keeps one entry per source;
+   `merge_flattened` concatenates, flattening array-valued sources by one level.
+   Any other `linkMerge` value is a fatal error."
   [values link-merge]
-  (if (= "merge_flattened" (some-> link-merge name))
-    (vec (mapcat #(if (sequential? %) % [%]) values))
-    (vec values)))
+  (case (some-> link-merge name)
+    (nil "merge_nested") (vec values)
+    "merge_flattened"    (vec (mapcat #(if (sequential? %) % [%]) values))
+    (throw (ex-info (str "Unknown linkMerge method: " (pr-str link-merge))
+                    {:linkMerge link-merge}))))
 
 (defn- resolve-in
   "Resolve one step input's value from the environment, applying `linkMerge` when
