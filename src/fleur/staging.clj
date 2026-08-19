@@ -83,23 +83,22 @@
                          [k (update input :value #(resolve-value base-dir %))])
                        inputs)))))
 
-(def ^:private load-contents-limit
-  "CWL `loadContents` reads at most the first 64 KiB of a file."
+(def load-contents-limit
+  "CWL `loadContents` applies to files 64 KiB or smaller."
   65536)
 
-(defn- read-contents
-  "Read up to the first 64 KiB of a file as a UTF-8 string (CWL loadContents)."
+(defn load-contents
+  "Read the entire contents of a UTF-8 text file for CWL `loadContents`. The file
+   must be 64 KiB or smaller; a larger file raises a fatal error (CWL v1.2:
+   `loadContents` must fail rather than silently truncate)."
   [path]
-  (let [f (io/file path)
-        n (min load-contents-limit (.length f))
-        buf (byte-array n)]
-    (with-open [in (io/input-stream f)]
-      (let [got (loop [off 0]
-                  (if (< off n)
-                    (let [r (.read in buf off (- n off))]
-                      (if (neg? r) off (recur (+ off r))))
-                    off))]
-        (String. buf 0 got "UTF-8")))))
+  (let [f   (io/file path)
+        len (.length f)]
+    (when (> len load-contents-limit)
+      (throw (ex-info (str "loadContents: file is larger than the 64 KiB limit: "
+                           path " (" len " bytes)")
+                      {:path path :size len :limit load-contents-limit})))
+    (slurp f :encoding "UTF-8")))
 
 (defn- input-loads-contents?
   "True when an input spec requests `loadContents`, either at the top level
@@ -119,7 +118,7 @@
                          [k (let [v (:value input)]
                               (if (and (input-loads-contents? input)
                                        (file-object? v) (:path v))
-                                (assoc-in input [:value :contents] (read-contents (:path v)))
+                                (assoc-in input [:value :contents] (load-contents (:path v)))
                                 input))])
                        inputs)))))
 

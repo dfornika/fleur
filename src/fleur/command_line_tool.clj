@@ -261,24 +261,6 @@
    :path path
    :basename (.getName (io/file path))})
 
-(def ^:private load-contents-limit
-  "CWL `loadContents` reads at most the first 64 KiB of a file."
-  65536)
-
-(defn- load-contents
-  "Read up to the first 64 KiB of a file as a UTF-8 string (CWL loadContents)."
-  [path]
-  (let [f (io/file path)
-        n (min load-contents-limit (.length f))
-        buf (byte-array n)]
-    (with-open [in (io/input-stream f)]
-      (let [got (loop [off 0]
-                  (if (< off n)
-                    (let [r (.read in buf off (- n off))]
-                      (if (neg? r) off (recur (+ off r))))
-                    off))]
-        (String. buf 0 got "UTF-8")))))
-
 (defn- strip-extensions
   "Remove `n` trailing extensions (text after the last dot) from `path`."
   [path n]
@@ -371,11 +353,12 @@
                                output-type (:type output-spec)
                                decorate #(-> % (attach-secondary-files output-spec context js?)
                                              (attach-format output-spec context js?))
-                               ;; loadContents attaches the first 64 KiB of each
-                               ;; globbed File as `.contents` (visible to outputEval).
+                               ;; loadContents attaches each globbed File's
+                               ;; contents as `.contents` (visible to outputEval);
+                               ;; a file over 64 KiB is a fatal error.
                                files (mapv (fn [p]
                                              (cond-> (file-object p)
-                                               (:loadContents binding) (assoc :contents (load-contents p))))
+                                               (:loadContents binding) (assoc :contents (stg/load-contents p))))
                                            matching-files)]
                            [output-key
                             (cond
