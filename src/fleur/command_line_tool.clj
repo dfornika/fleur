@@ -149,21 +149,53 @@
   [v context js?]
   (if context (expr/evaluate v context {:js? js?}) v))
 
-(defn- input-binding-entry
-  "Build a sortable command-line entry for an input, or nil if the input has
-   no inputBinding (such inputs are not placed on the command line). When a
-   context is supplied, an inputBinding :valueFrom is evaluated with `self`
-   bound to the input's value."
+(defn- record-type?
+  "True if `t` is a parsed CWL record type: a map with :type \"record\" and
+   :fields."
+  [t]
+  (and (map? t) (= "record" (some-> (:type t) name)) (:fields t)))
+
+(defn- leaf-field-name
+  "Leaf name (keyword) of a possibly cwljava-scoped record field `:name`,
+   e.g. `file:...#point/x` -> :x."
+  [n]
+  (-> (str n) (str/split #"#") last (str/split #"/") last keyword))
+
+(defn- binding-entry
+  "One sortable command-line entry: a `binding` applied to `value` of type
+   `type-kw`, with `name` as the tie-break. A binding :valueFrom is evaluated
+   (with `self` = value) when a context is supplied."
+  [context js? type-kw binding value name]
+  (let [v (if (and context (contains? binding :valueFrom))
+            (expr/evaluate (:valueFrom binding) (assoc context :self value) {:js? js?})
+            value)]
+    {:sort-key [(get binding :position 0) 1 name]
+     :tokens (binding-tokens type-kw binding v)}))
+
+(defn- input-entries
+  "Sortable command-line entries for one input. A record-typed input contributes
+   nothing itself but recurses into each field that carries an `inputBinding`
+   (CWL binds record fields, not the record as a whole). A non-record input with
+   an `inputBinding` contributes a single entry; an input without one contributes
+   nothing (it is not placed on the command line)."
   [context js? [input-key input]]
-  (let [binding (:inputBinding input)]
-    (when binding
-      (let [value (if (and context (contains? binding :valueFrom))
-                    (expr/evaluate (:valueFrom binding)
-                                   (assoc context :self (:value input))
-                                   {:js? js?})
-                    (:value input))]
-        {:sort-key [(get binding :position 0) 1 (name input-key)]
-         :tokens (binding-tokens (input-type input) binding value)}))))
+  (let [t (:type input)
+        value (:value input)]
+    (cond
+      (record-type? t)
+      (mapcat (fn [field]
+                (when (:inputBinding field)
+                  (let [fname (leaf-field-name (:name field))]
+                    (input-entries context js?
+                                   [fname {:type (:type field)
+                                           :inputBinding (:inputBinding field)
+                                           :value (get value fname (get value (name fname)))}]))))
+              (:fields t))
+
+      (:inputBinding input)
+      [(binding-entry context js? (input-type input) (:inputBinding input) value (name input-key))]
+
+      :else nil)))
 
 (defn- argument-entry
   "Build a sortable command-line entry for a CWL `arguments` element. Plain
@@ -195,8 +227,8 @@
                 (sequential? base-command) (vec base-command)
                 :else                      [base-command])
          arg-entries (map-indexed (partial argument-entry context js?) (:arguments tool))
-         input-entries (keep (partial input-binding-entry context js?) (:inputs tool))
-         ordered (sort-by :sort-key (concat arg-entries input-entries))
+         in-entries (mapcat (partial input-entries context js?) (:inputs tool))
+         ordered (sort-by :sort-key (concat arg-entries in-entries))
          command-line-elements (concat base (mapcat :tokens ordered))]
      (assoc tool :commandLine command-line-elements))))
 
@@ -421,6 +453,26 @@
           (assoc :commandLine argv :executionResult result)
           (bind-outputs host-context)))))
 
+(defn expand-std-stream-outputs
+  "Expand the CWL `stdout`/`stderr` output type shorthands. An output declared
+   `type: stdout` (or `stderr`) is collected from the tool's captured
+   stdout/stderr as a File; if the tool has no `:stdout`/`:stderr` filename, one
+   is generated. Rewrites such outputs to `type: File` with a matching glob and
+   sets the stream filename on the tool."
+  [tool]
+  (reduce
+   (fn [tool [out-id spec]]
+     (let [t (some-> (:type spec) name)]
+       (if (#{"stdout" "stderr"} t)
+         (let [stream (keyword t)
+               fname  (or (get tool stream) (str (name out-id) "." t))]
+           (-> tool
+               (assoc stream fname)
+               (assoc-in [:outputs out-id] {:type "File" :outputBinding {:glob fname}})))
+         tool)))
+   tool
+   (:outputs tool)))
+
 (defn run
   "End-to-end convenience: apply defaults and `provided-inputs`, resolve input
    File paths, build the `runtime` object and evaluation context, stage inputs,
@@ -442,6 +494,7 @@
   ([tool provided-inputs {:keys [basedir stage-inputs?] :as opts}]
    (let [basedir (or basedir (System/getProperty "user.dir"))
          tool (-> tool
+                  expand-std-stream-outputs
                   assoc-inputs-with-default-values
                   (assoc-inputs-with-values provided-inputs)
                   (stg/resolve-inputs basedir)

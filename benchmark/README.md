@@ -39,10 +39,14 @@ The run prints a report, e.g.:
 ```
 === Fleur benchmark corpus ===
   expr-double            expression-tool supported    = match
-  record-input           record-type     unsupported  ! mismatch -> {:out ""}
+  scatter-valuefrom      scatter-valuefrom supported  = match
   ...
-Supported: 20   Unsupported: 4   Total: 24
+Supported: 24   Unsupported: 0   Total: 24
 ```
+
+(An `:unsupported` case that is not yet implemented would instead print
+`! mismatch`/`! error`, and turn the suite red once it starts producing the
+correct output — the cue to promote it.)
 
 ## Current cases
 
@@ -68,21 +72,18 @@ Supported: 20   Unsupported: 4   Total: 24
 | `scatter-reduce`       | scatter then reduce        | supported   |
 | `initial-work-dir`     | `InitialWorkDirRequirement` | supported  |
 | `cat-stdin`            | stdin redirection          | supported   |
-| `scatter-valuefrom`    | per-element scatter `valueFrom` | unsupported |
-| `linkmerge-outputsource` | `linkMerge` on `outputSource` | unsupported |
-| `record-input`         | record-typed input binding | unsupported |
-| `stdout-type`          | `type: stdout` shorthand   | unsupported |
+| `scatter-valuefrom`    | per-element scatter `valueFrom` | supported |
+| `linkmerge-outputsource` | `linkMerge` on `outputSource` | supported |
+| `record-input`         | record-typed input binding | supported   |
+| `stdout-type`          | `type: stdout` shorthand   | supported   |
 
-The **supported** cases are regression guards spanning ExpressionTools,
-linear/DAG workflows, real CommandLineTools (stdout/glob, stdin, arguments,
-InitialWorkDir), step `valueFrom`, input defaults, scatter/gather, conditional
-`when`, and multi-source `linkMerge`.
-
-The **unsupported** cases are the current roadmap — features whose correct output
-is pinned in `:expected` and which flip to a failing test (the cue to promote)
-once implemented: per-element `valueFrom` on a scattered input, `linkMerge` on a
-workflow `outputSource`, record/object input command-line binding, and the
-`type: stdout` output shorthand.
+Every case in the corpus is currently **supported** — it serves as a regression
+guard spanning ExpressionTools, linear/DAG workflows, real CommandLineTools
+(stdout/glob, stdin, arguments, InitialWorkDir, record inputs, the `type: stdout`
+shorthand), step `valueFrom` (including per-element on a scattered input), input
+defaults, scatter/gather, conditional `when`, and multi-source `linkMerge` (on
+step inputs and workflow `outputSource`). New `:unsupported` probes should be
+added as further CWL features are targeted.
 
 ### Comparing File outputs
 

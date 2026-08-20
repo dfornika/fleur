@@ -229,8 +229,9 @@ This is the algorithm `build-command-line` implements:
 - **File / Directory**: add `prefix` and the value of `.path`.
 - **array**: with `itemSeparator`, add `prefix` + joined string; otherwise add
   `prefix` then recurse into each element; an empty array adds nothing.
-- **record/object**: add `prefix` only, then recurse into fields that have an
-  `inputBinding`. (Not yet implemented in Fleur.)
+- **record/object**: recurse into fields that have an `inputBinding`, binding
+  each leaf field by its position (a top-level `prefix` on the record itself is
+  not yet emitted).
 
 ### Runtime notes
 - Values referenced as `$(...)` / `${...}` are **parameter references /
@@ -280,7 +281,8 @@ This is the algorithm `build-command-line` implements:
   `build-command-line` (`arguments`/`valueFrom`), `execute`
   (`stdin`/`stdout`/`stderr`), and `bind-outputs` (`glob`/`secondaryFiles`/`format`).
 - ✅ Populate the `runtime.*` object automatically (`fleur.runtime/make-runtime`).
-- ✅ `stdin`/`stdout`/`stderr` redirection (in `execute`).
+- ✅ `stdin`/`stdout`/`stderr` redirection (in `execute`), and the `stdout`/
+  `stderr` output *type* shorthands (`expand-std-stream-outputs`).
 - ✅ Output file collection incl. `secondaryFiles` (suffix/`^` and expression
   patterns), `format`, `loadContents`, and `outputEval` (scalar/array outputs
   derived from globbed Files). Still to do: output validation.
@@ -330,14 +332,14 @@ This is the algorithm `build-command-line` implements:
 - ✅ Scatter/gather (`fleur.workflow`): single-input scatter and multi-input
   `scatterMethod` (`dotproduct`, `flat_crossproduct`, `nested_crossproduct`),
   gathering step outputs into (nested) arrays; an empty scatter input yields
-  empty outputs. Not yet: per-element `valueFrom` on a scattered input.
+  empty outputs, and per-element `valueFrom` on a scattered input (evaluated per
+  job with `self` bound to the element).
 - ✅ Conditional step execution (`when`, `fleur.workflow`): the guard is
   evaluated with `inputs` bound to the step's input object (and per job for a
   scattered step); a skipped step produces null for every output. A non-boolean
   guard is a fatal error.
-- ✅ Multi-source step inputs (`linkMerge`): `merge_nested` (one entry per
-  source, the default) and `merge_flattened` (concatenate, flattening array
-  sources one level). Input type-shorthand normalization lives in
-  `fleur.preprocess`.
-- Remaining Workflow gaps: `Operation` process class; per-element `valueFrom` on
-  a scattered input; `linkMerge` on `outputSource`.
+- ✅ Multi-source inputs (`linkMerge`): `merge_nested` (one entry per source, the
+  default) and `merge_flattened` (concatenate, flattening array sources one
+  level), on both step inputs and workflow output `outputSource`. Input
+  type-shorthand normalization lives in `fleur.preprocess`.
+- Remaining Workflow gaps: `Operation` process class; `pickValue`.

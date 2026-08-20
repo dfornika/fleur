@@ -135,6 +135,29 @@
               :inputs {:src {:type "string" :value "Hello.java"
                              :inputBinding {:position 1}}}}))))))
 
+(deftest build-command-line-record-test
+  (testing "a record input's fields are bound (recursively) by their own inputBinding"
+    (is (= '("echo" "3" "4")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "echo"
+              :inputs {:point {:type {:type "record"
+                                      :fields [{:name "x" :type "int" :inputBinding {:position 1}}
+                                               {:name "y" :type "int" :inputBinding {:position 2}}]}
+                               :value {:x 3 :y 4}}}})))))
+  (testing "record field bindings interleave with other inputs by position"
+    (is (= '("cmd" "A" "fx" "Z")
+           (:commandLine
+            (t/build-command-line
+             {:baseCommand "cmd"
+              :inputs (array-map
+                       :rec {:type {:type "record"
+                                    :fields [{:name "f" :type "string"
+                                              :inputBinding {:position 2 :prefix "fx" :separate false}}]}
+                             :value {:f ""}}
+                       :a {:type "string" :value "A" :inputBinding {:position 1}}
+                       :z {:type "string" :value "Z" :inputBinding {:position 3}})}))))))
+
 (deftest build-command-line-boolean-test
   (testing "a true boolean emits only its prefix"
     (is (= '("cmd" "--verbose")
@@ -420,6 +443,26 @@
       (is (zero? (:exit (:executionResult result))))
       (is (= "message.txt" (:basename out)))
       (is (= "hi there" (str/trim (slurp (:path out))))))))
+
+(deftest expand-std-stream-outputs-test
+  (testing "type: stdout becomes a File globbing a generated stdout filename"
+    (let [t (t/expand-std-stream-outputs {:outputs {:out {:type "stdout"}}})]
+      (is (= "out.stdout" (:stdout t)))
+      (is (= {:type "File" :outputBinding {:glob "out.stdout"}} (get-in t [:outputs :out])))))
+  (testing "an explicit stdout filename is preserved; stderr shorthand too"
+    (let [t (t/expand-std-stream-outputs {:stdout "log.txt"
+                                          :outputs {:o {:type "stdout"} :e {:type "stderr"}}})]
+      (is (= "log.txt" (:stdout t)))
+      (is (= "log.txt" (get-in t [:outputs :o :outputBinding :glob])))
+      (is (= "e.stderr" (:stderr t)))
+      (is (= "e.stderr" (get-in t [:outputs :e :outputBinding :glob]))))))
+
+(deftest run-stdout-shorthand-test
+  (testing "a type: stdout output collects the captured stdout as a File"
+    (let [tool {:baseCommand "echo" :arguments ["from stdout shorthand"]
+                :inputs {} :outputs {:out {:type "stdout"}}}
+          out (:out (:boundOutputs (t/run tool {})))]
+      (is (= "from stdout shorthand" (str/trim (slurp (:path out))))))))
 
 (deftest run-tar-extract-integration-test
   (testing "the tar_extract sample runs end-to-end: a relative input path is

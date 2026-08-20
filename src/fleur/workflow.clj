@@ -171,11 +171,8 @@
                   [(name iid) (if (contains? provided iid) (get provided iid) (:default spec))])
                 inputs)))
 
-(defn- resolve-source [env src]
-  (if (vector? src) (mapv #(get env %) src) (get env src)))
-
 (defn- merge-sources
-  "Combine the values pulled for a multi-source step input per `linkMerge`:
+  "Combine the values pulled for a multi-source ref per `linkMerge`:
    `merge_nested` (the default, when omitted) keeps one entry per source;
    `merge_flattened` concatenates, flattening array-valued sources by one level.
    Any other `linkMerge` value is a fatal error."
@@ -186,32 +183,44 @@
     (throw (ex-info (str "Unknown linkMerge method: " (pr-str link-merge))
                     {:linkMerge link-merge}))))
 
+(defn- resolve-linked
+  "Resolve a source ref (a single id string, or a vector of them) from the
+   environment, applying `linkMerge` when it draws from multiple sources. Used
+   for both step-input `source` and workflow-output `outputSource`."
+  [env src link-merge]
+  (cond
+    (nil? src)    nil
+    (vector? src) (merge-sources (mapv #(get env %) src) link-merge)
+    :else         (get env src)))
+
 (defn- resolve-in
   "Resolve one step input's value from the environment, applying `linkMerge` when
    the input draws from multiple sources (a vector `source`)."
   [env spec]
-  (let [src (:source spec)]
-    (cond
-      (nil? src)    nil
-      (vector? src) (merge-sources (mapv #(get env %) src) (:linkMerge spec))
-      :else         (get env src))))
+  (resolve-linked env (:source spec) (:linkMerge spec)))
 
-(defn- resolve-step-inputs
-  "Resolve a step's inputs into a job map {input-id value}: pull each `source`
-   from the environment (applying `linkMerge` for multi-source inputs, falling
-   back to `default`), then apply any `valueFrom` with `self` bound to the value
-   and `inputs` to the resolved job map."
-  [workflow step env]
-  (let [base (into {} (for [[inp-id spec] (:in step)]
-                        [inp-id (let [v (resolve-in env spec)]
-                                  (if (and (nil? v) (contains? spec :default)) (:default spec) v))]))
-        js? (clt/inline-javascript? workflow)]
-    (into {} (for [[inp-id spec] (:in step)]
-               [inp-id (if (:valueFrom spec)
-                         (expr/evaluate (:valueFrom spec)
-                                        {:inputs base :self (get base inp-id) :runtime {}}
-                                        {:js? js?})
-                         (get base inp-id))]))))
+(defn- resolve-step-base
+  "Resolve a step's inputs into a job map {input-id value} by pulling each
+   `source` from the environment (applying `linkMerge` for multi-source inputs,
+   falling back to `default`). `valueFrom` is applied separately by
+   `apply-value-from`, so that for a scattered step it can run per scatter job."
+  [step env]
+  (into {} (for [[inp-id spec] (:in step)]
+             [inp-id (let [v (resolve-in env spec)]
+                       (if (and (nil? v) (contains? spec :default)) (:default spec) v))])))
+
+(defn- apply-value-from
+  "Apply each input's `valueFrom` to a resolved job map `base`, evaluating with
+   `self` bound to that input's value and `inputs` to `base`. For a scattered
+   step this runs per scatter job, so `self` is the individual scattered element
+   (CWL: `valueFrom` is evaluated after scattering)."
+  [in-specs base js?]
+  (into {} (for [[inp-id spec] in-specs]
+             [inp-id (if (:valueFrom spec)
+                       (expr/evaluate (:valueFrom spec)
+                                      {:inputs base :self (get base inp-id) :runtime {}}
+                                      {:js? js?})
+                       (get base inp-id))])))
 
 (defn- run-ref->path
   "Resolve a step `run` string reference to a filesystem path: strip a `file:`
@@ -337,9 +346,10 @@
    scattered input must be an array (CWL implicitly wraps a scattered parameter's
    type in an array); a missing or non-array value is a fatal error. If any
    scattered input is an *empty* array, all outputs are empty arrays and no jobs
-   run (CWL scatter rule). A `when` guard is evaluated per scatter job (with
-   `inputs` bound to that job); skipped jobs contribute null to the output arrays."
-  [tool base-job {:keys [scatter method out-ids when-expr js? opts]}]
+   run (CWL scatter rule). Each scatter job then has `valueFrom` applied (so a
+   scattered input's `valueFrom` sees `self` = its element) and its `when` guard
+   evaluated; skipped jobs contribute null to the output arrays."
+  [tool base-job {:keys [scatter method out-ids in-specs when-expr js? opts]}]
   (let [arrays (map #(get base-job %) scatter)]
     (doseq [[p v] (map vector scatter arrays)]
       (when-not (sequential? v)
@@ -350,9 +360,10 @@
       (into {} (map (fn [o] [o []]) out-ids))
       (let [run-leaf (fn run-leaf [node]
                        (if (map? node)
-                         (if (passes-when? when-expr node js?)
-                           (:boundOutputs (process/run tool node opts))
-                           (skipped-outputs out-ids))
+                         (let [job (apply-value-from in-specs node js?)]
+                           (if (passes-when? when-expr job js?)
+                             (:boundOutputs (process/run tool job opts))
+                             (skipped-outputs out-ids)))
                          (mapv run-leaf node)))
             results  (run-leaf (scatter-jobs base-job scatter method))
             gather   (fn gather [o node]
@@ -377,22 +388,23 @@
          env (reduce (fn [env sid]
                        (let [step (get steps sid)
                              tool (inherit-requirements workflow (step-process step basedir opts))
-                             job (resolve-step-inputs workflow step env)
+                             base (resolve-step-base step env)
                              outs (cond
-                                    ;; scatter (with an optional per-job `when`)
+                                    ;; scatter applies valueFrom + `when` per job
                                     (:scatter step)
-                                    (run-scatter tool job {:scatter (:scatter step)
-                                                           :method (:scatterMethod step)
-                                                           :out-ids (:out step)
-                                                           :when-expr (:when step)
-                                                           :js? js?
-                                                           :opts opts})
-                                    ;; a `when` guard that evaluates false -> skip
-                                    (not (passes-when? (:when step) job js?))
-                                    (skipped-outputs (:out step))
+                                    (run-scatter tool base {:scatter (:scatter step)
+                                                            :method (:scatterMethod step)
+                                                            :out-ids (:out step)
+                                                            :in-specs (:in step)
+                                                            :when-expr (:when step)
+                                                            :js? js?
+                                                            :opts opts})
 
                                     :else
-                                    (:boundOutputs (process/run tool job opts)))]
+                                    (let [job (apply-value-from (:in step) base js?)]
+                                      (if (passes-when? (:when step) job js?)
+                                        (:boundOutputs (process/run tool job opts))
+                                        (skipped-outputs (:out step)))))]
                          (reduce (fn [env out-id]
                                    (assoc env (str (name sid) "/" (name out-id))
                                           (get outs out-id)))
@@ -401,5 +413,5 @@
                      env0
                      (step-order steps))
          bound (into {} (for [[oid ospec] outputs]
-                          [oid (resolve-source env (:outputSource ospec))]))]
+                          [oid (resolve-linked env (:outputSource ospec) (:linkMerge ospec))]))]
      (assoc workflow :boundOutputs bound))))
