@@ -388,6 +388,13 @@
                                                (id-map (:outputs workflow)))
          env0 (seed-environment inputs provided-inputs job-basedir basedir)
          js? (clt/inline-javascript? workflow)
+         ;; A step's job is assembled from the workflow document (step-input
+         ;; `default`/`valueFrom`) and upstream outputs (already absolute), never
+         ;; from a job file — so relative File paths in it are document-relative.
+         ;; Run steps with :job-basedir pinned to the document base. (The
+         ;; workflow's own provided-inputs were already resolved against the real
+         ;; job base in seed-environment.)
+         step-opts (assoc opts :basedir basedir :job-basedir basedir)
          order (step-order steps)
          wf-name (or (some-> (:label workflow)) (some-> (:id workflow) name) "workflow")
          wf-t0 (log/now-nanos)
@@ -411,12 +418,12 @@
                                                            :out-ids (:out step)
                                                            :when-expr (:when step)
                                                            :js? js?
-                                                           :opts opts})
+                                                           :opts step-opts})
                                     skipped?
                                     (skipped-outputs (:out step))
 
                                     :else
-                                    (:boundOutputs (process/run tool job opts)))]
+                                    (:boundOutputs (process/run tool job step-opts)))]
                          (if skipped?
                            (log/step-skipped! {:step step-name})
                            (log/step-done! (cond-> {:step step-name :run-msecs (log/msecs-since t0)}

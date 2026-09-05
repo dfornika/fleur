@@ -4,8 +4,10 @@
    (cwltool behavior), while the programmatic API keeps a cwd default."
   (:require [clojure.test :refer [deftest testing is]]
             [clojure.java.io :as io]
+            [clojure.string :as str]
             [fleur.main :as main]
-            [fleur.process :as process]))
+            [fleur.process :as process]
+            [fleur.workflow :as wf]))
 
 (defn- with-temp-dir [f]
   (let [dir (io/file (System/getProperty "java.io.tmpdir")
@@ -34,6 +36,26 @@
           (spit job (str "{\"tarfile\":{\"class\":\"File\",\"path\":\"" abs "\"}}"))
           (let [out (main/run-document "resources/tar_extract.cwl" (.getPath job))]
             (is (= "hello.txt" (get-in out [:example_out :basename])))))))))
+
+(deftest step-input-default-resolves-against-document-base-test
+  (testing "a step-input :default File path (declared in the workflow document)
+            resolves against the document base, not the job base, when they
+            differ — step jobs are not read from a job file"
+    (let [w {:class "Workflow"
+             :requirements [{:class "InlineJavascriptRequirement"}]
+             :inputs {}
+             :outputs {:p {:type "string" :outputSource "s/p"}}
+             :steps {:s {:in {:f {:default {:class "File" :path "sample.txt"}}}
+                         :out [:p]
+                         :run {:class "ExpressionTool"
+                               :inputs {:f {:type "File"}}
+                               :outputs {:p {:type "string"}}
+                               :expression "${ return {p: inputs.f.path}; }"}}}}
+          out (get-in (wf/run w {} {:basedir "/tmp/docbase"
+                                    :job-basedir "/tmp/jobbase"})
+                      [:boundOutputs :p])]
+      (is (= "/tmp/docbase/sample.txt" out))
+      (is (not (str/includes? out "jobbase"))))))
 
 (deftest run-file-cwd-relative-backcompat-test
   (testing "the programmatic API defaults job-basedir to cwd: a repo-root
