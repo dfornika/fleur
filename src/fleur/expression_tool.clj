@@ -26,15 +26,18 @@
    map the result onto the declared outputs. JavaScript is used when the tool
    declares InlineJavascriptRequirement (as ExpressionTools normally do).
 
-   `opts` accepts `:basedir` (for resolving relative input paths) and the
-   `fleur.runtime/make-runtime` options."
+   `opts` accepts `:basedir` (document base, for `File` `default:` values) and
+   `:job-basedir` (base for `provided-inputs` job paths; defaults to `:basedir`),
+   plus the `fleur.runtime/make-runtime` options."
   ([tool provided-inputs] (run tool provided-inputs {}))
-  ([tool provided-inputs {:keys [basedir] :as opts}]
-   (let [basedir (or basedir (System/getProperty "user.dir"))
+  ([tool provided-inputs {:keys [basedir job-basedir] :as opts}]
+   (let [doc-basedir (or basedir (System/getProperty "user.dir"))
+         job-basedir (or job-basedir doc-basedir)
+         provided (stg/resolve-provided provided-inputs job-basedir)
          tool (-> tool
                   clt/assoc-inputs-with-default-values
-                  (clt/assoc-inputs-with-values provided-inputs)
-                  (stg/resolve-inputs basedir)
+                  (stg/resolve-inputs doc-basedir)
+                  (clt/assoc-inputs-with-values provided)
                   stg/load-contents-inputs)
          runtime (rt/make-runtime tool opts)
          context (clt/evaluation-context tool runtime)

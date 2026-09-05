@@ -469,8 +469,12 @@
 
    `opts` are passed to `fleur.runtime/make-runtime` (e.g. `{:outdir \"...\"}`)
    plus staging controls:
-   - `:basedir`       base directory for resolving relative input paths
-                      (default: the current working directory)
+   - `:basedir`       document base directory, for resolving relative `File`
+                      `default:` values (default: the current working directory)
+   - `:job-basedir`   base directory for resolving relative paths in
+                      `provided-inputs` (job values); defaults to `:basedir`.
+                      cwltool resolves job paths relative to the job file, so the
+                      CLI sets this to the job file's directory.
    - `:stage-inputs?` copy every input File/Directory into `runtime.outdir`
                       before running (default: false; paths stay absolute).
                       Ignored for dockerized tools, which mount inputs instead.
@@ -479,12 +483,16 @@
    - `:docker-user`   explicit `docker run --user` value (overrides
                       `:match-user?`), e.g. \"0:0\" to run as root."
   ([tool provided-inputs] (run tool provided-inputs {}))
-  ([tool provided-inputs {:keys [basedir stage-inputs?] :as opts}]
-   (let [basedir (or basedir (System/getProperty "user.dir"))
+  ([tool provided-inputs {:keys [basedir job-basedir stage-inputs?] :as opts}]
+   (let [doc-basedir (or basedir (System/getProperty "user.dir"))
+         job-basedir (or job-basedir doc-basedir)
+         ;; Job values resolve against the job base; declared `default:` values
+         ;; against the document base (they may differ under the CLI).
+         provided (stg/resolve-provided provided-inputs job-basedir)
          tool (-> tool
                   assoc-inputs-with-default-values
-                  (assoc-inputs-with-values provided-inputs)
-                  (stg/resolve-inputs basedir)
+                  (stg/resolve-inputs doc-basedir)
+                  (assoc-inputs-with-values provided)
                   stg/load-contents-inputs)
          runtime (rt/make-runtime tool opts)
          req (docker/docker-requirement tool)]

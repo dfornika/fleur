@@ -74,12 +74,13 @@ Build the uberjar once (from the repo root):
 clojure -T:build uber
 ```
 
-Then run **from this directory** so the job file's relative paths resolve:
+Then run it from anywhere — the job file's relative paths resolve against the
+job file's own directory (cwltool behavior), e.g. from the repo root:
 
 ```bash
-cd workflows/gene-detection
-java -jar ../../target/cwl-runner-0.1.0-standalone.jar \
-  gene-detection.cwl gene-detection-job.yml
+java -jar target/cwl-runner-0.1.0-standalone.jar \
+  workflows/gene-detection/gene-detection.cwl \
+  workflows/gene-detection/gene-detection-job.yml
 ```
 
 Run feedback goes to **stderr** while the result JSON stays on **stdout**, so
@@ -87,8 +88,9 @@ you can capture the result and watch progress at the same time. Add
 `--log-file run.edn` for a detailed structured log:
 
 ```bash
-java -jar ../../target/cwl-runner-0.1.0-standalone.jar \
-  --log-file run.edn gene-detection.cwl gene-detection-job.yml > out.json
+java -jar target/cwl-runner-0.1.0-standalone.jar --log-file run.edn \
+  workflows/gene-detection/gene-detection.cwl \
+  workflows/gene-detection/gene-detection-job.yml > out.json
 ```
 
 stderr shows a concise per-step view with durations and the scatter task count:
@@ -121,8 +123,6 @@ geneD   absent   0.0           0.0           -                   -
 geneE   absent   0.0           0.0           -                   -
 ```
 
-> **Note on paths:** Fleur currently resolves a job file's relative `File`
-> paths against the *current working directory*, not the job file's own
-> directory — so run from this directory, or make the paths in
-> `gene-detection-job.yml` absolute. (cwltool resolves them relative to the job
-> file; aligning Fleur with that is a candidate improvement.)
+> **Paths:** relative `File` paths in `gene-detection-job.yml` resolve against
+> the job file's own directory (cwltool behavior), so the run works from any
+> working directory.
