@@ -82,7 +82,35 @@ java -jar ../../target/cwl-runner-0.1.0-standalone.jar \
   gene-detection.cwl gene-detection-job.yml
 ```
 
-The final `report` is printed as a JSON object pointing at `gene_report.tsv`:
+Run feedback goes to **stderr** while the result JSON stays on **stdout**, so
+you can capture the result and watch progress at the same time. Add
+`--log-file run.edn` for a detailed structured log:
+
+```bash
+java -jar ../../target/cwl-runner-0.1.0-standalone.jar \
+  --log-file run.edn gene-detection.cwl gene-detection-job.yml > out.json
+```
+
+stderr shows a concise per-step view with durations and the scatter task count:
+
+```
+[fleur] workflow Gene detection … · 3 steps
+[fleur] ▶ build_db (CommandLineTool)
+[fleur] ✓ build_db (599ms)
+[fleur] ▶ search (CommandLineTool)
+[fleur] ✓ search · 5 tasks (2.3s)
+[fleur] ▶ summarize (CommandLineTool)
+[fleur] ✓ summarize (25ms)
+[fleur] workflow Gene detection … done (2.9s)
+```
+
+`run.edn` additionally records the full `docker run` argv for each task, any
+tool stderr, and timings (one EDN signal per line). Use `-v` for the verbose
+view on stderr, `-q` to show only warnings/errors. A failing tool now surfaces
+as `[fleur] ✗ <tool> exited <n>` with a non-zero process exit, instead of a
+silent empty result.
+
+The final `report` (on stdout) is a JSON object pointing at `gene_report.tsv`:
 
 ```
 gene    status   pct_identity  pct_coverage  subject             evalue

@@ -14,6 +14,7 @@
             [ubergraph.alg :as alg]
             [fleur.command-line-tool :as clt]
             [fleur.expression :as expr]
+            [fleur.log :as log]
             [fleur.preprocess :as pre]
             [fleur.process :as process]))
 
@@ -339,7 +340,7 @@
    scattered input is an *empty* array, all outputs are empty arrays and no jobs
    run (CWL scatter rule). A `when` guard is evaluated per scatter job (with
    `inputs` bound to that job); skipped jobs contribute null to the output arrays."
-  [tool base-job {:keys [scatter method out-ids when-expr js? opts]}]
+  [tool base-job {:keys [step scatter method out-ids when-expr js? opts]}]
   (let [arrays (map #(get base-job %) scatter)]
     (doseq [[p v] (map vector scatter arrays)]
       (when-not (sequential? v)
@@ -347,16 +348,22 @@
                              (if (nil? v) "nil (missing)" (pr-str v)))
                         {:input p :value v :scatter scatter}))))
     (if (some empty? arrays)
-      (into {} (map (fn [o] [o []]) out-ids))
-      (let [run-leaf (fn run-leaf [node]
+      (do (log/scatter-start! {:step step :n 0 :method method})
+          (into {} (map (fn [o] [o []]) out-ids)))
+      (let [jobs     (scatter-jobs base-job scatter method)
+            n        (count (flatten jobs))
+            t0       (log/now-nanos)
+            _        (log/scatter-start! {:step step :n n :method method})
+            run-leaf (fn run-leaf [node]
                        (if (map? node)
                          (if (passes-when? when-expr node js?)
                            (:boundOutputs (process/run tool node opts))
                            (skipped-outputs out-ids))
                          (mapv run-leaf node)))
-            results  (run-leaf (scatter-jobs base-job scatter method))
+            results  (run-leaf jobs)
             gather   (fn gather [o node]
                        (if (map? node) (get node o) (mapv #(gather o %) node)))]
+        (log/scatter-done! {:step step :n n :run-msecs (log/msecs-since t0)})
         (into {} (map (fn [o] [o (gather o results)]) out-ids))))))
 
 (defn run
@@ -374,32 +381,50 @@
                                                (id-map (:outputs workflow)))
          env0 (seed-environment inputs provided-inputs)
          js? (clt/inline-javascript? workflow)
+         order (step-order steps)
+         wf-name (or (some-> (:label workflow)) (some-> (:id workflow) name) "workflow")
+         wf-t0 (log/now-nanos)
+         _ (log/workflow-start! {:name wf-name :n-steps (count order)})
          env (reduce (fn [env sid]
                        (let [step (get steps sid)
                              tool (inherit-requirements workflow (step-process step basedir opts))
                              job (resolve-step-inputs workflow step env)
+                             step-name (name sid)
+                             ;; A non-scatter step whose `when` guard is false is
+                             ;; skipped wholesale; scatter evaluates `when` per job.
+                             skipped? (and (not (:scatter step))
+                                           (not (passes-when? (:when step) job js?)))
+                             t0 (log/now-nanos)
+                             _ (log/step-start! {:step step-name :class (some-> (:class tool) name)})
                              outs (cond
-                                    ;; scatter (with an optional per-job `when`)
                                     (:scatter step)
-                                    (run-scatter tool job {:scatter (:scatter step)
+                                    (run-scatter tool job {:step step-name
+                                                           :scatter (:scatter step)
                                                            :method (:scatterMethod step)
                                                            :out-ids (:out step)
                                                            :when-expr (:when step)
                                                            :js? js?
                                                            :opts opts})
-                                    ;; a `when` guard that evaluates false -> skip
-                                    (not (passes-when? (:when step) job js?))
+                                    skipped?
                                     (skipped-outputs (:out step))
 
                                     :else
                                     (:boundOutputs (process/run tool job opts)))]
+                         (if skipped?
+                           (log/step-skipped! {:step step-name})
+                           (log/step-done! (cond-> {:step step-name :run-msecs (log/msecs-since t0)}
+                                             (:scatter step)
+                                             (assoc :n-tasks (count (flatten
+                                                                     (scatter-jobs job (:scatter step)
+                                                                                   (:scatterMethod step))))))))
                          (reduce (fn [env out-id]
                                    (assoc env (str (name sid) "/" (name out-id))
                                           (get outs out-id)))
                                  env
                                  (:out step))))
                      env0
-                     (step-order steps))
+                     order)
          bound (into {} (for [[oid ospec] outputs]
                           [oid (resolve-source env (:outputSource ospec))]))]
+     (log/workflow-done! {:name wf-name :run-msecs (log/msecs-since wf-t0)})
      (assoc workflow :boundOutputs bound))))
