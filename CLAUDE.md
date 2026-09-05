@@ -95,8 +95,26 @@ cwl-runner resources/linear_math.cwl job.json      # prints the outputs as JSON
 The document is preprocessed (cwljava by default) and run; the bound outputs
 are written to stdout as a JSON object. `bin/cwl-runner` finds the jar via
 `$FLEUR_JAR` or the newest `target/cwl-runner-*-standalone.jar`. Options:
-`--outdir DIR`, `--backend {cwljava,clojure,schema-salad-tool}`, `--help`,
-`--version`.
+`--outdir DIR`, `--backend {cwljava,clojure,schema-salad-tool}`,
+`--log-file PATH`, `-v/--verbose`, `-q/--quiet`, `--help`, `-V/--version`.
+
+### Run feedback / logging (`fleur.log`, Telemere)
+Runs emit structured feedback through `fleur.log` (built on Telemere). Two
+sinks:
+- a **minimal, human-friendly view on stderr** — workflow/step/scatter
+  lifecycle with durations (so the result JSON on **stdout** stays clean and
+  pipeable); and
+- an optional **detailed EDN log file** (`--log-file PATH`) carrying the full
+  structured signals (argv, tool stderr, mounts, ...) at debug level.
+
+`-v/--verbose` lowers the stderr view to debug (shows commands/scatter detail);
+`-q/--quiet` limits it to warnings/errors. Tool exit codes are now checked:
+a non-success exit (honoring `successCodes`) logs a `tool-failed!` error and
+throws, instead of silently producing empty output. Fleur is **quiet by
+default** as a library — requiring it removes Telemere's default stdout handler;
+call `fleur.log/init!` to enable sinks (the CLI does this automatically).
+Tests capture signals directly via Telemere's `with-signals` (see
+`fleur.log-test`).
 
 ### Testing
 Tests use `clojure.test` and run via the Cognitect test-runner:
@@ -111,7 +129,7 @@ Test files live in `test/`: `fleur.command-line-tool-test`,
 `fleur.expression-test`, `fleur.expression-tool-test`, `fleur.preprocess-test`,
 `fleur.process-test`, `fleur.workflow-test`, `fleur.runtime-test`,
 `fleur.staging-test`, `fleur.docker-test`, `fleur.cwljava-test`,
-`fleur.pipeline-test`, and `fleur.benchmark-test`. All should
+`fleur.pipeline-test`, `fleur.log-test`, and `fleur.benchmark-test`. All should
 stay green. `fleur.cwljava-test` exercises the default `:cwljava` backend and
 runs as part of the normal suite (cwljava is a regular dependency).
 
@@ -150,6 +168,9 @@ roadmap; the initial batch targets the known gaps (scatter, conditional `when`,
   GitHub via JitPack (`:mvn/repos`). Powers the default `:cwljava` preprocessing
   backend. Loaded reflectively, so it stays a runtime/classpath dependency with
   no compile-time coupling.
+- **Telemere** (`com.taoensso/telemere`): structured logging/telemetry, wrapped
+  by `fleur.log` to drive run feedback — a minimal human view on stderr and a
+  detailed EDN log file (see the "Run feedback / logging" section above).
 
 ## Key Data Structures
 

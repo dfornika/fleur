@@ -1,0 +1,15 @@
+# Job inputs for gene-detection.cwl
+# Paths are relative to this file's directory.
+reference:
+  class: File
+  path: data/genome.fasta
+
+query_genes:
+  - { class: File, path: data/genes/geneA.fasta }
+  - { class: File, path: data/genes/geneB.fasta }
+  - { class: File, path: data/genes/geneC.fasta }
+  - { class: File, path: data/genes/geneD.fasta }
+  - { class: File, path: data/genes/geneE.fasta }
+
+min_identity: 90.0
+min_coverage: 80.0
