@@ -349,6 +349,7 @@
                         {:input p :value v :scatter scatter}))))
     (if (some empty? arrays)
       (do (log/scatter-start! {:step step :n 0 :method method})
+          (log/scatter-done! {:step step :n 0 :run-msecs 0})
           (into {} (map (fn [o] [o []]) out-ids)))
       (let [jobs     (scatter-jobs base-job scatter method)
             n        (count (flatten jobs))

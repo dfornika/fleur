@@ -21,7 +21,9 @@ requirements:
           import sys
 
           def parse_args(argv):
-              min_id, min_cov, tables = 90.0, 60.0, []
+              # Defaults mirror the CWL input defaults (min_identity/min_coverage)
+              # so standalone runs match the workflow contract.
+              min_id, min_cov, tables = 90.0, 80.0, []
               i = 0
               while i < len(argv):
                   a = argv[i]

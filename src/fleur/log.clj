@@ -51,10 +51,12 @@
                                        :output-fn human-output-fn})
                    {:min-level console-level})
    (when log-file
-     (t/add-handler! :fleur/file
-                     (t/handler:console {:stream (io/writer (io/file log-file) :append true)
-                                         :output-fn (t/pr-signal-fn {:pr-fn :edn})})
-                     {:min-level file-level}))
+     (let [f (io/file log-file)]
+       (io/make-parents f)                ; create the parent dir if it's missing
+       (t/add-handler! :fleur/file
+                       (t/handler:console {:stream (io/writer f :append true)
+                                           :output-fn (t/pr-signal-fn {:pr-fn :edn})})
+                       {:min-level file-level})))
    nil))
 
 (defn shutdown!
