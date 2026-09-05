@@ -12,7 +12,11 @@
         ;; cwljava: schema-salad-generated CWL Java SDK, the default
         ;; preprocessing backend (fleur.preprocess). Pulled from GitHub via
         ;; JitPack (see :mvn/repos below).
-        com.github.common-workflow-language/cwljava {:mvn/version "v2.0.0"}}
+        com.github.common-workflow-language/cwljava {:mvn/version "v2.0.0"}
+        ;; Telemere: structured logging/telemetry. Drives run feedback — a
+        ;; minimal human-friendly view on stderr and a detailed EDN log file
+        ;; (see fleur.log).
+        com.taoensso/telemere {:mvn/version "1.4.0"}}
  ;; JitPack builds the cwljava artifact on demand from its GitHub repo.
  :mvn/repos {"jitpack" {:url "https://jitpack.io"}}
  :aliases

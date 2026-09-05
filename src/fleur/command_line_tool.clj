@@ -3,6 +3,7 @@
             [clojure.java.shell :as shell]
             [clojure.java.io :as io]
             [fleur.expression :as expr]
+            [fleur.log :as log]
             [fleur.runtime :as rt]
             [fleur.staging :as stg]
             [fleur.docker :as docker]))
@@ -237,6 +238,40 @@
   [v]
   (if (map? v) (:path v) v))
 
+(defn- tool-label
+  "A short human label for a tool's command-level log events, from its
+   `baseCommand` (e.g. \"blastn\", \"makeblastdb\", \"python3\"), falling back to
+   its class."
+  [tool]
+  (let [bc (:baseCommand tool)]
+    (cond
+      (string? bc)     bc
+      (sequential? bc) (str (first bc))
+      :else            (or (some-> (:class tool) name) "tool"))))
+
+(defn- success-exit?
+  "Whether `exit` counts as success for `tool`: any code in `successCodes` if
+   declared, otherwise exit 0 (the CWL default)."
+  [tool exit]
+  (let [codes (:successCodes tool)]
+    (if (seq codes)
+      (contains? (set codes) exit)
+      (= 0 exit))))
+
+(defn- check-result!
+  "Inspect a `clojure.java.shell/sh` result: on a non-success exit, log a
+   `tool-failed!` event and throw; otherwise surface any captured stderr as a
+   debug `tool-stderr!` event. Returns `result` on success."
+  [tool label result]
+  (let [exit (:exit result)]
+    (if (and (integer? exit) (not (success-exit? tool exit)))
+      (do (log/tool-failed! {:step label :exit exit :stderr (:err result)})
+          (throw (ex-info (str label " failed (exit " exit ")")
+                          {:exit exit :stderr (:err result) :tool label})))
+      (do (when (seq (:err result))
+            (log/tool-stderr! {:step label :stderr (:err result)}))
+          result))))
+
 (defn execute
   "Run the tool's `:commandLine`. With a `context`, `stdin`/`stdout`/`stderr`
    are evaluated as expressions; the process runs in `runtime.outdir` (when
@@ -259,7 +294,9 @@
                    stdin     (conj :in (io/file stdin))
                    (seq env) (conj :env (merge (into {} (System/getenv)) env))
                    outdir    (conj :dir outdir))
-         result (apply shell/sh sh-args)]
+         label (tool-label tool)
+         _ (log/command! {:step label :argv cmd})
+         result (check-result! tool label (apply shell/sh sh-args))]
      (when (and stdout-name outdir)
        (spit (io/file outdir stdout-name) (:out result)))
      (when (and stderr-name outdir)
@@ -446,7 +483,10 @@
     (let [built (build-command-line c-tool c-context)
           argv (docker/docker-run-argv image mounts c-outdir (:commandLine built)
                                        {:user user :network network})
-          result (apply shell/sh (cond-> argv stdin (conj :in (io/file stdin))))]
+          label (tool-label tool)
+          _ (log/command! {:step label :argv argv})
+          result (check-result! tool label
+                                (apply shell/sh (cond-> argv stdin (conj :in (io/file stdin)))))]
       (when stdout-name (spit (io/file host-outdir stdout-name) (:out result)))
       (when stderr-name (spit (io/file host-outdir stderr-name) (:err result)))
       (-> built
@@ -481,8 +521,12 @@
 
    `opts` are passed to `fleur.runtime/make-runtime` (e.g. `{:outdir \"...\"}`)
    plus staging controls:
-   - `:basedir`       base directory for resolving relative input paths
-                      (default: the current working directory)
+   - `:basedir`       document base directory, for resolving relative `File`
+                      `default:` values (default: the current working directory)
+   - `:job-basedir`   base directory for resolving relative paths in
+                      `provided-inputs` (job values); defaults to `:basedir`.
+                      cwltool resolves job paths relative to the job file, so the
+                      CLI sets this to the job file's directory.
    - `:stage-inputs?` copy every input File/Directory into `runtime.outdir`
                       before running (default: false; paths stay absolute).
                       Ignored for dockerized tools, which mount inputs instead.
@@ -491,13 +535,17 @@
    - `:docker-user`   explicit `docker run --user` value (overrides
                       `:match-user?`), e.g. \"0:0\" to run as root."
   ([tool provided-inputs] (run tool provided-inputs {}))
-  ([tool provided-inputs {:keys [basedir stage-inputs?] :as opts}]
-   (let [basedir (or basedir (System/getProperty "user.dir"))
+  ([tool provided-inputs {:keys [basedir job-basedir stage-inputs?] :as opts}]
+   (let [doc-basedir (or basedir (System/getProperty "user.dir"))
+         job-basedir (or job-basedir doc-basedir)
+         ;; Job values resolve against the job base; declared `default:` values
+         ;; against the document base (they may differ under the CLI).
+         provided (stg/resolve-provided provided-inputs job-basedir)
          tool (-> tool
                   expand-std-stream-outputs
                   assoc-inputs-with-default-values
-                  (assoc-inputs-with-values provided-inputs)
-                  (stg/resolve-inputs basedir)
+                  (stg/resolve-inputs doc-basedir)
+                  (assoc-inputs-with-values provided)
                   stg/load-contents-inputs)
          runtime (rt/make-runtime tool opts)
          req (docker/docker-requirement tool)]

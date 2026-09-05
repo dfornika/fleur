@@ -12,6 +12,7 @@
             [clojure.tools.cli :as cli]
             [clojure.data.json :as json]
             [clj-yaml.core :as yaml]
+            [fleur.log :as log]
             [fleur.process :as process])
   (:gen-class))
 
@@ -22,8 +23,11 @@
    [nil  "--backend NAME" "Preprocessing backend: cwljava (default), clojure, or schema-salad-tool"
     :parse-fn keyword
     :validate [#{:cwljava :clojure :schema-salad-tool} "must be cwljava, clojure, or schema-salad-tool"]]
+   [nil  "--log-file PATH" "Write a detailed EDN run log to PATH"]
+   ["-v" "--verbose" "Verbose run feedback on stderr (debug level)"]
+   ["-q" "--quiet" "Quiet: only warnings and errors on stderr"]
    ["-h" "--help" "Show this help and exit"]
-   ["-v" "--version" "Show version and exit"]])
+   ["-V" "--version" "Show version and exit"]])
 
 (defn- usage [summary]
   (str/join
@@ -45,12 +49,27 @@
     (yaml/parse-string (slurp job-file))   ; clj-yaml also parses JSON
     {}))
 
+(defn- parent-dir
+  "Absolute parent directory of a path string, or nil."
+  [path]
+  (some-> path io/file .getAbsoluteFile .getParent))
+
 (defn run-document
   "Run the CWL `cwl-file` against the (optional) `job-file`, returning the bound
-   outputs. `opts` are passed through to `fleur.process/run-file`."
+   outputs.
+
+   Following cwltool, relative `File` paths in the job file resolve against the
+   job file's directory (`:job-basedir`) and the document's own references
+   resolve against the document's directory (`:basedir`); both are derived from
+   the file arguments here so a run works from any working directory. Explicit
+   `opts` override the derived bases. `opts` are passed through to
+   `fleur.process/run-file`."
   ([cwl-file job-file] (run-document cwl-file job-file {}))
   ([cwl-file job-file opts]
-   (:boundOutputs (process/run-file cwl-file (load-job job-file) opts))))
+   (let [doc-basedir (parent-dir cwl-file)
+         job-basedir (or (parent-dir job-file) doc-basedir)
+         opts (merge {:basedir doc-basedir :job-basedir job-basedir} opts)]
+     (:boundOutputs (process/run-file cwl-file (load-job job-file) opts)))))
 
 (defn -main [& args]
   (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)]
@@ -69,11 +88,18 @@
       (let [[cwl-file job-file] arguments
             opts (cond-> {}
                    (:outdir options)  (assoc :outdir (:outdir options))
-                   (:backend options) (assoc :backend (:backend options)))]
+                   (:backend options) (assoc :backend (:backend options)))
+            console-level (cond (:quiet options)   :warn
+                                (:verbose options) :debug
+                                :else              :info)]
+        (log/init! {:log-file (:log-file options) :console-level console-level})
         (try
-          (println (json/write-str (run-document cwl-file job-file opts)))
-          (flush)
-          (System/exit 0)
+          (let [result (run-document cwl-file job-file opts)]
+            (log/shutdown!)                     ; flush stderr/file before the result
+            (println (json/write-str result))
+            (flush)
+            (System/exit 0))
           (catch Throwable e
             (binding [*out* *err*] (println "cwl-runner error:" (.getMessage e)))
+            (log/shutdown!)
             (System/exit 1)))))))

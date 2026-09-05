@@ -469,7 +469,9 @@
             resolved to absolute, tar runs in outdir, and the output is bound"
     (let [tool (yaml/parse-string (slurp (io/resource "tar_extract.cwl")))
           job  (json/read-str (slurp (io/resource "tar_extract-job.json")) :key-fn keyword)
-          result (t/run tool job)
+          ;; The job's File path ("hello.tar") is relative to the job file's
+          ;; directory (resources/).
+          result (t/run tool job {:job-basedir "resources"})
           out (:example_out (:boundOutputs result))]
       (is (str/ends-with? (nth (:commandLine result) 3) "/resources/hello.tar")
           "the relative tarfile path was resolved to an absolute path")

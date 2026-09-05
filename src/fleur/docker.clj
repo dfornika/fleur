@@ -11,6 +11,7 @@
             [clojure.java.shell :as shell]
             [clojure.string :as str]
             [fleur.expression :as expr]
+            [fleur.log :as log]
             [fleur.runtime :as rt]
             [fleur.staging :as stg]))
 
@@ -63,6 +64,7 @@
       (throw (ex-info "DockerRequirement specifies no image (need dockerImageId or dockerPull)"
                       {:requirement req})))
     (when (and (:dockerPull req) (not (image-present? image)))
+      (log/image-pull! {:image image})
       (docker-pull (:dockerPull req)))
     image))
 

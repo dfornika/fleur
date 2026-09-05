@@ -14,8 +14,10 @@
             [ubergraph.alg :as alg]
             [fleur.command-line-tool :as clt]
             [fleur.expression :as expr]
+            [fleur.log :as log]
             [fleur.preprocess :as pre]
-            [fleur.process :as process]))
+            [fleur.process :as process]
+            [fleur.staging :as stg]))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Normalization: CWL allows map (id -> spec) and list ({:id ...}) forms
@@ -165,10 +167,14 @@
 
 (defn- seed-environment
   "Seed the environment with workflow input values, keyed by input id string:
-   the provided job value, else the declared default."
-  [inputs provided]
+   the provided job value (resolved against `job-basedir`), else the declared
+   default (resolved against `doc-basedir`). Resolving here means downstream
+   steps receive absolute File paths regardless of the runner's cwd."
+  [inputs provided job-basedir doc-basedir]
   (into {} (map (fn [[iid spec]]
-                  [(name iid) (if (contains? provided iid) (get provided iid) (:default spec))])
+                  [(name iid) (if (contains? provided iid)
+                                (stg/resolve-value job-basedir (get provided iid))
+                                (stg/resolve-value doc-basedir (:default spec)))])
                 inputs)))
 
 (defn- merge-sources
@@ -349,7 +355,7 @@
    run (CWL scatter rule). Each scatter job then has `valueFrom` applied (so a
    scattered input's `valueFrom` sees `self` = its element) and its `when` guard
    evaluated; skipped jobs contribute null to the output arrays."
-  [tool base-job {:keys [scatter method out-ids in-specs when-expr js? opts]}]
+  [tool base-job {:keys [step scatter method out-ids in-specs when-expr js? opts]}]
   (let [arrays (map #(get base-job %) scatter)]
     (doseq [[p v] (map vector scatter arrays)]
       (when-not (sequential? v)
@@ -357,17 +363,24 @@
                              (if (nil? v) "nil (missing)" (pr-str v)))
                         {:input p :value v :scatter scatter}))))
     (if (some empty? arrays)
-      (into {} (map (fn [o] [o []]) out-ids))
-      (let [run-leaf (fn run-leaf [node]
+      (do (log/scatter-start! {:step step :n 0 :method method})
+          (log/scatter-done! {:step step :n 0 :run-msecs 0})
+          (into {} (map (fn [o] [o []]) out-ids)))
+      (let [jobs     (scatter-jobs base-job scatter method)
+            n        (count (flatten jobs))
+            t0       (log/now-nanos)
+            _        (log/scatter-start! {:step step :n n :method method})
+            run-leaf (fn run-leaf [node]
                        (if (map? node)
                          (let [job (apply-value-from in-specs node js?)]
                            (if (passes-when? when-expr job js?)
                              (:boundOutputs (process/run tool job opts))
                              (skipped-outputs out-ids)))
                          (mapv run-leaf node)))
-            results  (run-leaf (scatter-jobs base-job scatter method))
+            results  (run-leaf jobs)
             gather   (fn gather [o node]
                        (if (map? node) (get node o) (mapv #(gather o %) node)))]
+        (log/scatter-done! {:step step :n n :run-msecs (log/msecs-since t0)})
         (into {} (map (fn [o] [o (gather o results)]) out-ids))))))
 
 (defn run
@@ -378,40 +391,69 @@
    the workflow outputs (`outputSource`) to consume. `opts` (e.g. `:basedir`) are
    passed through to each step's process runner."
   ([workflow provided-inputs] (run workflow provided-inputs {}))
-  ([workflow provided-inputs {:keys [basedir] :as opts}]
+  ([workflow provided-inputs {:keys [basedir job-basedir] :as opts}]
    (let [basedir (or basedir (System/getProperty "user.dir"))
+         job-basedir (or job-basedir basedir)
          inputs (id-map (:inputs workflow))
          [steps outputs] (canonicalize-sources (normalize-steps (:steps workflow))
                                                (id-map (:outputs workflow)))
-         env0 (seed-environment inputs provided-inputs)
+         env0 (seed-environment inputs provided-inputs job-basedir basedir)
          js? (clt/inline-javascript? workflow)
+         ;; A step's job is assembled from the workflow document (step-input
+         ;; `default`/`valueFrom`) and upstream outputs (already absolute), never
+         ;; from a job file — so relative File paths in it are document-relative.
+         ;; Run steps with :job-basedir pinned to the document base. (The
+         ;; workflow's own provided-inputs were already resolved against the real
+         ;; job base in seed-environment.)
+         step-opts (assoc opts :basedir basedir :job-basedir basedir)
+         order (step-order steps)
+         wf-name (or (some-> (:label workflow)) (some-> (:id workflow) name) "workflow")
+         wf-t0 (log/now-nanos)
+         _ (log/workflow-start! {:name wf-name :n-steps (count order)})
          env (reduce (fn [env sid]
                        (let [step (get steps sid)
                              tool (inherit-requirements workflow (step-process step basedir opts))
                              base (resolve-step-base step env)
+                             step-name (name sid)
+                             scatter? (boolean (:scatter step))
+                             ;; non-scatter: apply valueFrom now; a scattered step
+                             ;; applies it per job inside run-scatter. A non-scatter
+                             ;; step whose `when` is false is skipped wholesale.
+                             job (when-not scatter? (apply-value-from (:in step) base js?))
+                             skipped? (and (not scatter?)
+                                           (not (passes-when? (:when step) job js?)))
+                             t0 (log/now-nanos)
+                             _ (log/step-start! {:step step-name :class (some-> (:class tool) name)})
                              outs (cond
-                                    ;; scatter applies valueFrom + `when` per job
-                                    (:scatter step)
-                                    (run-scatter tool base {:scatter (:scatter step)
+                                    scatter?
+                                    (run-scatter tool base {:step step-name
+                                                            :scatter (:scatter step)
                                                             :method (:scatterMethod step)
                                                             :out-ids (:out step)
                                                             :in-specs (:in step)
                                                             :when-expr (:when step)
                                                             :js? js?
-                                                            :opts opts})
+                                                            :opts step-opts})
+                                    skipped?
+                                    (skipped-outputs (:out step))
 
                                     :else
-                                    (let [job (apply-value-from (:in step) base js?)]
-                                      (if (passes-when? (:when step) job js?)
-                                        (:boundOutputs (process/run tool job opts))
-                                        (skipped-outputs (:out step)))))]
+                                    (:boundOutputs (process/run tool job step-opts)))]
+                         (if skipped?
+                           (log/step-skipped! {:step step-name})
+                           (log/step-done! (cond-> {:step step-name :run-msecs (log/msecs-since t0)}
+                                             scatter?
+                                             (assoc :n-tasks (count (flatten
+                                                                     (scatter-jobs base (:scatter step)
+                                                                                   (:scatterMethod step))))))))
                          (reduce (fn [env out-id]
                                    (assoc env (str (name sid) "/" (name out-id))
                                           (get outs out-id)))
                                  env
                                  (:out step))))
                      env0
-                     (step-order steps))
+                     order)
          bound (into {} (for [[oid ospec] outputs]
                           [oid (resolve-linked env (:outputSource ospec) (:linkMerge ospec))]))]
+     (log/workflow-done! {:name wf-name :run-msecs (log/msecs-since wf-t0)})
      (assoc workflow :boundOutputs bound))))
