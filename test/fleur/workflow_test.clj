@@ -159,6 +159,17 @@
                               :run (et-step "${ return {out: inputs.n * 2}; }")}}}]
       (is (= [] (get-in (wf/run w {:numbers []}) [:boundOutputs :doubled]))))))
 
+(deftest scatter-valuefrom-test
+  (testing "a scattered input's valueFrom is evaluated per element (self = element)"
+    (let [w {:class "Workflow"
+             :requirements [{:class "InlineJavascriptRequirement"}]
+             :inputs {:numbers {:type "int[]"}}
+             :outputs {:out {:type "int[]" :outputSource "ten/out"}}
+             :steps {:ten {:in {:n {:source "numbers" :valueFrom "$(self * 10)"}}
+                           :out [:out] :scatter [:n]
+                           :run (et-step "${ return {out: inputs.n}; }")}}}]
+      (is (= [10 20 30] (get-in (wf/run w {:numbers [1 2 3]}) [:boundOutputs :out]))))))
+
 (deftest scatter-dotproduct-test
   (testing "dotproduct zips the arrays element-wise"
     (let [w (scatter-wf {:x {:source "a"} :y {:source "b"}} [:x :y] :dotproduct "s/out")]
@@ -267,3 +278,19 @@
     (testing "an unknown linkMerge method is a fatal error"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"[Uu]nknown linkMerge"
                             (wf/run (wf "merge_bogus" sum-step) {:a 1 :b 10}))))))
+
+(deftest linkmerge-outputsource-test
+  (testing "linkMerge is applied to a workflow output's multi-source outputSource"
+    (let [emit (fn [] {:class "ExpressionTool" :inputs {:n {:type "int"}}
+                       :outputs {:out {:type "int[]"}}
+                       :expression "${ return {out: [inputs.n, inputs.n + 1]}; }"})
+          w {:class "Workflow"
+             :requirements [{:class "InlineJavascriptRequirement"}]
+             :inputs {:a {:type "int"} :b {:type "int"}}
+             :outputs {:merged {:type "int[]"
+                                :outputSource ["left/out" "right/out"]
+                                :linkMerge "merge_flattened"}}
+             :steps {:left  {:in {:n {:source "a"}} :out [:out] :run (emit)}
+                     :right {:in {:n {:source "b"}} :out [:out] :run (emit)}}}]
+      ;; left=[1,2], right=[10,11] -> flattened [1,2,10,11]
+      (is (= [1 2 10 11] (get-in (wf/run w {:a 1 :b 10}) [:boundOutputs :merged]))))))

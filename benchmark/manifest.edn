@@ -199,7 +199,7 @@
 
  {:id          :scatter-valuefrom
   :feature     :scatter-valuefrom
-  :status      :unsupported
+  :status      :supported
   :description "Per-element valueFrom ($(self * 10)) on a scattered input."
   :cwl         "benchmark/scatter/scatter-valuefrom.cwl"
   :job         {:numbers [1 2 3]}
@@ -207,7 +207,7 @@
 
  {:id          :linkmerge-outputsource
   :feature     :linkmerge-outputsource
-  :status      :unsupported
+  :status      :supported
   :description "linkMerge: merge_flattened on a workflow output's outputSource."
   :cwl         "benchmark/linkmerge/linkmerge-outputsource.cwl"
   :job         {:a 1 :b 10}
@@ -215,7 +215,7 @@
 
  {:id          :record-input
   :feature     :record-type
-  :status      :unsupported
+  :status      :supported
   :description "A record-typed input whose fields carry their own inputBinding."
   :cwl         "benchmark/record/record-input.cwl"
   :job         {:point {:x 3 :y 4}}
@@ -224,7 +224,7 @@
 
  {:id          :stdout-type
   :feature     :stdout-shortcut
-  :status      :unsupported
+  :status      :supported
   :description "The `type: stdout` output shorthand (no explicit glob)."
   :cwl         "benchmark/cmdline/stdout-type.cwl"
   :job         {}
