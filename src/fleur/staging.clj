@@ -66,7 +66,10 @@
         (:secondaryFiles obj)   (update :secondaryFiles #(mapv (partial resolve-file base-dir) %))
         (:listing obj)          (update :listing #(mapv (partial resolve-file base-dir) %))))))
 
-(defn- resolve-value [base v]
+(defn resolve-value
+  "Resolve every File/Directory in a value (scalar or array) to an absolute path
+   with populated metadata, relative to `base`. Non-File values pass through."
+  [base v]
   (cond
     (file-object? v) (resolve-file base v)
     (sequential? v)  (mapv #(resolve-value base %) v)
@@ -82,6 +85,14 @@
                   (map (fn [[k input]]
                          [k (update input :value #(resolve-value base-dir %))])
                        inputs)))))
+
+(defn resolve-provided
+  "Resolve every File/Directory in a raw provided-inputs map (job values) to an
+   absolute path with populated metadata, relative to `base` (the job-file
+   directory). Values are keyed by input id; non-File values pass through."
+  [provided base]
+  (into (empty provided)
+        (map (fn [[k v]] [k (resolve-value base v)]) provided)))
 
 (def load-contents-limit
   "CWL `loadContents` applies to files 64 KiB or smaller."

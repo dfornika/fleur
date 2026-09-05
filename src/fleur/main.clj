@@ -49,12 +49,27 @@
     (yaml/parse-string (slurp job-file))   ; clj-yaml also parses JSON
     {}))
 
+(defn- parent-dir
+  "Absolute parent directory of a path string, or nil."
+  [path]
+  (some-> path io/file .getAbsoluteFile .getParent))
+
 (defn run-document
   "Run the CWL `cwl-file` against the (optional) `job-file`, returning the bound
-   outputs. `opts` are passed through to `fleur.process/run-file`."
+   outputs.
+
+   Following cwltool, relative `File` paths in the job file resolve against the
+   job file's directory (`:job-basedir`) and the document's own references
+   resolve against the document's directory (`:basedir`); both are derived from
+   the file arguments here so a run works from any working directory. Explicit
+   `opts` override the derived bases. `opts` are passed through to
+   `fleur.process/run-file`."
   ([cwl-file job-file] (run-document cwl-file job-file {}))
   ([cwl-file job-file opts]
-   (:boundOutputs (process/run-file cwl-file (load-job job-file) opts))))
+   (let [doc-basedir (parent-dir cwl-file)
+         job-basedir (or (parent-dir job-file) doc-basedir)
+         opts (merge {:basedir doc-basedir :job-basedir job-basedir} opts)]
+     (:boundOutputs (process/run-file cwl-file (load-job job-file) opts)))))
 
 (defn -main [& args]
   (let [{:keys [options arguments errors summary]} (cli/parse-opts args cli-options)]

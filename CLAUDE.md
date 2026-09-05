@@ -268,9 +268,15 @@ This is the algorithm `build-command-line` implements:
   whole pipeline together: defaults -> job values -> resolve input paths ->
   runtime -> (optional stage-inputs) -> InitialWorkDirRequirement -> context ->
   build -> execute -> bind-outputs.
-- Input Files are resolved to absolute paths (`fleur.staging/resolve-inputs`,
-  base dir = cwd or `run`'s `:basedir`), so tools run in `runtime.outdir` still
-  find their inputs. `run`'s `:stage-inputs?` copies inputs into the working dir;
+- Input Files are resolved to absolute paths (`fleur.staging/resolve-inputs`),
+  so tools run in `runtime.outdir` still find their inputs. Following cwltool,
+  path resolution uses two bases: `:job-basedir` for relative paths in the
+  provided-inputs/job values, and `:basedir` (the document base) for `run:`
+  refs, `$import`, and `File` `default:` values. The CLI derives them from the
+  file arguments (job paths relative to the job file, document refs relative to
+  the document), so a run works from any working directory; the library API
+  defaults both to the current working directory (pass `:job-basedir`/`:basedir`
+  to override). `run`'s `:stage-inputs?` copies inputs into the working dir;
   `InitialWorkDirRequirement` entries are always staged there.
 - **Done**: `loadContents` on File inputs (top-level or `inputBinding`, first
   64 KiB) and on output `outputBinding` (incl. `outputEval`); `EnvVarRequirement`

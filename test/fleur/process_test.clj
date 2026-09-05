@@ -57,7 +57,9 @@
 (deftest run-file-with-file-input-test
   (testing "the tar_extract sample runs from disk, resolving its File input"
     (let [job (json/read-str (slurp (io/resource "tar_extract-job.json")) :key-fn keyword)
-          r (process/run-file "resources/tar_extract.cwl" job)]
+          ;; The job's File path ("hello.tar") is relative to the job file's
+          ;; directory (resources/); this programmatic call names the base.
+          r (process/run-file "resources/tar_extract.cwl" job {:job-basedir "resources"})]
       (is (zero? (:exit (:executionResult r))))
       (is (= "hello.txt" (get-in r [:boundOutputs :example_out :basename]))))))
 

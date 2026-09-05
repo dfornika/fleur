@@ -16,7 +16,8 @@
             [fleur.expression :as expr]
             [fleur.log :as log]
             [fleur.preprocess :as pre]
-            [fleur.process :as process]))
+            [fleur.process :as process]
+            [fleur.staging :as stg]))
 
 ;;; ---------------------------------------------------------------------------
 ;;; Normalization: CWL allows map (id -> spec) and list ({:id ...}) forms
@@ -166,10 +167,14 @@
 
 (defn- seed-environment
   "Seed the environment with workflow input values, keyed by input id string:
-   the provided job value, else the declared default."
-  [inputs provided]
+   the provided job value (resolved against `job-basedir`), else the declared
+   default (resolved against `doc-basedir`). Resolving here means downstream
+   steps receive absolute File paths regardless of the runner's cwd."
+  [inputs provided job-basedir doc-basedir]
   (into {} (map (fn [[iid spec]]
-                  [(name iid) (if (contains? provided iid) (get provided iid) (:default spec))])
+                  [(name iid) (if (contains? provided iid)
+                                (stg/resolve-value job-basedir (get provided iid))
+                                (stg/resolve-value doc-basedir (:default spec)))])
                 inputs)))
 
 (defn- resolve-source [env src]
@@ -375,12 +380,13 @@
    the workflow outputs (`outputSource`) to consume. `opts` (e.g. `:basedir`) are
    passed through to each step's process runner."
   ([workflow provided-inputs] (run workflow provided-inputs {}))
-  ([workflow provided-inputs {:keys [basedir] :as opts}]
+  ([workflow provided-inputs {:keys [basedir job-basedir] :as opts}]
    (let [basedir (or basedir (System/getProperty "user.dir"))
+         job-basedir (or job-basedir basedir)
          inputs (id-map (:inputs workflow))
          [steps outputs] (canonicalize-sources (normalize-steps (:steps workflow))
                                                (id-map (:outputs workflow)))
-         env0 (seed-environment inputs provided-inputs)
+         env0 (seed-environment inputs provided-inputs job-basedir basedir)
          js? (clt/inline-javascript? workflow)
          order (step-order steps)
          wf-name (or (some-> (:label workflow)) (some-> (:id workflow) name) "workflow")
