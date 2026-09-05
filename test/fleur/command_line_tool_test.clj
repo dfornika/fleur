@@ -455,7 +455,23 @@
       (is (= "log.txt" (:stdout t)))
       (is (= "log.txt" (get-in t [:outputs :o :outputBinding :glob])))
       (is (= "e.stderr" (:stderr t)))
-      (is (= "e.stderr" (get-in t [:outputs :e :outputBinding :glob]))))))
+      (is (= "e.stderr" (get-in t [:outputs :e :outputBinding :glob])))))
+  (testing "other output fields and outputBinding options are preserved, not overwritten"
+    (let [t (t/expand-std-stream-outputs
+             {:outputs {:out {:type "stdout"
+                              :format "edam:format_1964"
+                              :secondaryFiles [".idx"]
+                              :doc "the captured log"
+                              :outputBinding {:loadContents true
+                                              :outputEval "$(self[0].contents)"}}}})
+          spec (get-in t [:outputs :out])]
+      (is (= "File" (:type spec)))
+      (is (= "out.stdout" (get-in spec [:outputBinding :glob])) "glob is added")
+      (is (= "edam:format_1964" (:format spec)) ":format preserved")
+      (is (= [".idx"] (:secondaryFiles spec)) ":secondaryFiles preserved")
+      (is (= "the captured log" (:doc spec)) ":doc preserved")
+      (is (true? (get-in spec [:outputBinding :loadContents])) "outputBinding :loadContents preserved")
+      (is (= "$(self[0].contents)" (get-in spec [:outputBinding :outputEval])) "outputEval preserved"))))
 
 (deftest run-stdout-shorthand-test
   (testing "a type: stdout output collects the captured stdout as a File"

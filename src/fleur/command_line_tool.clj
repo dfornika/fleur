@@ -497,8 +497,10 @@
   "Expand the CWL `stdout`/`stderr` output type shorthands. An output declared
    `type: stdout` (or `stderr`) is collected from the tool's captured
    stdout/stderr as a File; if the tool has no `:stdout`/`:stderr` filename, one
-   is generated. Rewrites such outputs to `type: File` with a matching glob and
-   sets the stream filename on the tool."
+   is generated. Rewrites such outputs to `type: File`, adding the stream glob
+   while preserving the output's other fields (`:format`, `:secondaryFiles`,
+   `:doc`, ...) and any existing `:outputBinding` options (`:loadContents`,
+   `:outputEval`), and sets the stream filename on the tool."
   [tool]
   (reduce
    (fn [tool [out-id spec]]
@@ -508,7 +510,13 @@
                fname  (or (get tool stream) (str (name out-id) "." t))]
            (-> tool
                (assoc stream fname)
-               (assoc-in [:outputs out-id] {:type "File" :outputBinding {:glob fname}})))
+               (update-in [:outputs out-id]
+                          (fn [s]
+                            (-> s
+                                (assoc :type "File")
+                                ;; keep existing outputBinding keys; supply the
+                                ;; glob only if the user didn't set one.
+                                (update :outputBinding #(merge {:glob fname} %)))))))
          tool)))
    tool
    (:outputs tool)))
