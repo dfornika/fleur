@@ -96,19 +96,31 @@ The document is preprocessed (cwljava by default) and run; the bound outputs
 are written to stdout as a JSON object. `bin/cwl-runner` finds the jar via
 `$FLEUR_JAR` or the newest `target/cwl-runner-*-standalone.jar`. Options:
 `--outdir DIR`, `--backend {cwljava,clojure,schema-salad-tool}`,
-`--log-file PATH`, `-v/--verbose`, `-q/--quiet`, `--help`, `-V/--version`.
+`--log-file PATH`, `--progress`/`--no-progress`, `-v/--verbose`, `-q/--quiet`,
+`--help`, `-V/--version`.
 
 ### Run feedback / logging (`fleur.log`, Telemere)
 Runs emit structured feedback through `fleur.log` (built on Telemere). Two
 sinks:
-- a **minimal, human-friendly view on stderr** — workflow/step/scatter
-  lifecycle with durations (so the result JSON on **stdout** stays clean and
-  pipeable); and
+- a **human-friendly view on stderr** — workflow/step/scatter lifecycle with
+  durations (so the result JSON on **stdout** stays clean and pipeable); and
 - an optional **detailed EDN log file** (`--log-file PATH`) carrying the full
-  structured signals (argv, tool stderr, mounts, ...) at debug level.
+  structured signals (argv, tool stderr, mounts, per-scatter-task progress, ...)
+  at debug level.
 
-`-v/--verbose` lowers the stderr view to debug (shows commands/scatter detail);
-`-q/--quiet` limits it to warnings/errors. Tool exit codes are now checked:
+The stderr view has two forms: a **live progress display** (finished steps
+scroll up as `✓` lines while one live line at the bottom tracks the running
+step, its scatter `k/n`, `step X/N`, and elapsed — driven by the
+`progress-handler` in `fleur.log`), and a **plain per-event line** fallback.
+The live view is auto-enabled unless `-q`, `--no-progress`, `CI` is set, or
+`TERM` is unset/`dumb`; `--progress` forces it. (The JVM has no cheap
+stderr-isatty check, so detection gates on `CI`/`TERM` rather than
+`System/console`, which is nil whenever stdout is redirected.) `progress-enabled?`
+in `fleur.main` computes this; the live rendering (`update-progress`,
+`render-live`) is pure and unit-tested.
+
+`-v/--verbose` lowers the (plain) stderr view to debug (shows commands/scatter
+detail); `-q/--quiet` limits it to warnings/errors. Tool exit codes are now checked:
 a non-success exit (honoring `successCodes`) logs a `tool-failed!` error and
 throws, instead of silently producing empty output. Fleur is **quiet by
 default** as a library — requiring it removes Telemere's default stdout handler;

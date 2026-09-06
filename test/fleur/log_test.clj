@@ -62,3 +62,49 @@
       (is (= (count (by-id :fleur.log/step-start))
              (count (by-id :fleur.log/step-done)))
           "every started step also completes"))))
+
+;;; ---------------------------------------------------------------------------
+;;; Live progress display (pure state + rendering)
+;;; ---------------------------------------------------------------------------
+
+(defn- sig [id data] {:id id :data data})
+
+(deftest update-progress-test
+  (testing "folding a lifecycle event sequence yields the expected state"
+    (let [events [[(sig :fleur.log/workflow-start {:n-steps 3}) 1000]
+                  [(sig :fleur.log/step-start {:step "search" :class "CommandLineTool"}) 1000]
+                  [(sig :fleur.log/scatter-start {:n 5 :method nil}) 1001]
+                  [(sig :fleur.log/scatter-progress {:done 3 :n 5}) 1002]]
+          mid (reduce (fn [st [s now]] (log/update-progress st s now)) {} events)]
+      (is (= 3 (:total-steps mid)))
+      (is (= 0 (:completed mid)))
+      (is (= 1000 (:run-start mid)))
+      (is (= {:step "search" :class "CommandLineTool" :scatter {:done 3 :n 5}}
+             (:current mid)))
+      (testing "step-done increments completed and clears current"
+        (let [after (log/update-progress mid (sig :fleur.log/step-done {:step "search"}) 1003)]
+          (is (= 1 (:completed after)))
+          (is (nil? (:current after)))))
+      (testing "workflow-done marks the run finished"
+        (let [after (log/update-progress mid (sig :fleur.log/workflow-done {}) 1003)]
+          (is (true? (:done? after))))))))
+
+(deftest render-live-test
+  (testing "a scattered step renders step name, tasks, step count, elapsed"
+    (let [state {:total-steps 3 :completed 1 :run-start 0
+                 :current {:step "search" :scatter {:done 3 :n 5}}}]
+      (is (= "[fleur] ⠋   search   tasks 3/5   2/3 steps   0:04"
+             (log/render-live state 4000)))))
+  (testing "a non-scatter step omits the tasks segment"
+    (let [state {:total-steps 3 :completed 0 :run-start 0
+                 :current {:step "build_db" :scatter nil}}]
+      (is (= "[fleur] ⠋   build_db   1/3 steps   0:00"
+             (log/render-live state 812))))))
+
+(deftest scatter-progress-event-test
+  (testing "scatter-progress! carries the running done/total counts"
+    (let [{:keys [signals]}
+          (t/with-signals (log/scatter-progress! {:step "search" :done 2 :n 5}))
+          s (first signals)]
+      (is (= :fleur.log/scatter-progress (:id s)))
+      (is (= {:step "search" :done 2 :n 5} (:data s))))))

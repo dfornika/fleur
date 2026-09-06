@@ -370,12 +370,15 @@
             n        (count (flatten jobs))
             t0       (log/now-nanos)
             _        (log/scatter-start! {:step step :n n :method method})
+            done     (atom 0)
             run-leaf (fn run-leaf [node]
                        (if (map? node)
-                         (let [job (apply-value-from in-specs node js?)]
-                           (if (passes-when? when-expr job js?)
-                             (:boundOutputs (process/run tool job opts))
-                             (skipped-outputs out-ids)))
+                         (let [job (apply-value-from in-specs node js?)
+                               out (if (passes-when? when-expr job js?)
+                                     (:boundOutputs (process/run tool job opts))
+                                     (skipped-outputs out-ids))]
+                           (log/scatter-progress! {:step step :done (swap! done inc) :n n})
+                           out)
                          (mapv run-leaf node)))
             results  (run-leaf jobs)
             gather   (fn gather [o node]
