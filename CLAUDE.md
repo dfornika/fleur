@@ -112,12 +112,12 @@ The stderr view has two forms: a **live progress display** (finished steps
 scroll up as `✓` lines while one live line at the bottom tracks the running
 step, its scatter `k/n`, `step X/N`, and elapsed — driven by the
 `progress-handler` in `fleur.log`), and a **plain per-event line** fallback.
-The live view is auto-enabled unless `-q`, `--no-progress`, `CI` is set, or
-`TERM` is unset/`dumb`; `--progress` forces it. (The JVM has no cheap
-stderr-isatty check, so detection gates on `CI`/`TERM` rather than
-`System/console`, which is nil whenever stdout is redirected.) `progress-enabled?`
-in `fleur.main` computes this; the live rendering (`update-progress`,
-`render-live`) is pure and unit-tested.
+The live view is **off by default** (conservative): pass `--progress` to opt in;
+`-q`/`--no-progress` keep it off. (The JVM has no cheap stderr-isatty check and
+`System/console` is nil whenever stdout is redirected — the common `… > out.json`
+case — so we don't auto-enable.) `progress-enabled?` in `fleur.main` computes
+this; the live rendering (`update-progress`, `render-live`) is pure and
+unit-tested.
 
 `-v/--verbose` lowers the (plain) stderr view to debug (shows commands/scatter
 detail); `-q/--quiet` limits it to warnings/errors. Tool exit codes are now checked:

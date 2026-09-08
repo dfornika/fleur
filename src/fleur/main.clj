@@ -32,20 +32,16 @@
    ["-V" "--version" "Show version and exit"]])
 
 (defn- progress-enabled?
-  "Whether to show the live progress display. An explicit --progress/--no-progress
-   flag wins; otherwise auto-enable unless quiet, running under CI, or the
-   terminal is dumb/absent. (The JVM has no cheap stderr-isatty check, so we gate
-   on CI/TERM rather than System/console, which is nil whenever stdout is
-   redirected — the common `… > out.json` case.)"
+  "Whether to show the live progress display. Conservative default: off unless
+   `--progress` is passed. (The JVM has no cheap stderr-isatty check and
+   `System/console` is nil whenever stdout is redirected — the common
+   `… > out.json` case — so we don't auto-enable; the user opts in.) `-q`/
+   `--no-progress` keep it off."
   [options]
-  (let [term (System/getenv "TERM")]
-    (cond
-      (:no-progress options) false
-      (:quiet options)       false
-      (:progress options)    true
-      (System/getenv "CI")   false
-      (or (nil? term) (= term "dumb")) false
-      :else                  true)))
+  (boolean
+   (and (:progress options)
+        (not (:no-progress options))
+        (not (:quiet options)))))
 
 (defn- usage [summary]
   (str/join
