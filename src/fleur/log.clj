@@ -28,28 +28,119 @@
   [signal]
   (str "[fleur] " (force (:msg_ signal)) \newline))
 
+;;; ---------------------------------------------------------------------------
+;;; Live progress display (TTY)
+;;;
+;;; A stateful handler that renders a nextflow-style live view to stderr:
+;;; finished steps print permanent lines that scroll up, while a single live
+;;; line at the bottom tracks the in-progress step. The state model and line
+;;; rendering are pure (and unit-tested); the handler is a thin I/O wrapper.
+;;; ---------------------------------------------------------------------------
+
+(def ^:private erase-line "\r[K")   ; CR + clear-to-end-of-line
+
+(def ^:private spinner-frames
+  ["⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏"])
+
+(defn update-progress
+  "Fold one signal into the progress state. Pure. `now` is epoch millis.
+   State: {:total-steps :completed :current {:step :class :scatter {:done :n}}
+           :run-start :done?}."
+  [state signal now]
+  (let [d (:data signal)]
+    (case (:id signal)
+      ::workflow-start   (assoc state :total-steps (:n-steps d) :completed 0
+                                :current nil :run-start now :done? false)
+      ::step-start       (assoc state :current {:step (:step d) :class (:class d)
+                                                :scatter nil})
+      ::scatter-start    (assoc-in state [:current :scatter] {:done 0 :n (:n d)})
+      ::scatter-progress (assoc-in state [:current :scatter] {:done (:done d) :n (:n d)})
+      (::step-done
+       ::step-skipped)   (-> state (update :completed (fnil inc 0)) (assoc :current nil))
+      ::workflow-done    (assoc state :done? true :current nil)
+      state)))
+
+(defn- fmt-elapsed [ms]
+  (let [s (quot ms 1000)] (format "%d:%02d" (quot s 60) (mod s 60))))
+
+(defn render-live
+  "Render the live bottom line for `state` at `now` (epoch millis). Assumes a
+   current step is set. Returns a string with no trailing newline."
+  [state now]
+  (let [elapsed (max 0 (- now (:run-start state 0)))
+        frame   (nth spinner-frames (mod (quot elapsed 80) (count spinner-frames)))
+        {:keys [step scatter]} (:current state)
+        total   (:total-steps state)
+        idx     (if total (min total (inc (:completed state 0))) (inc (:completed state 0)))
+        parts   (cond-> [frame (str step)]
+                  scatter (conj (str "tasks " (:done scatter) "/" (:n scatter)))
+                  true    (conj (str idx (when total (str "/" total)) " steps"))
+                  true    (conj (fmt-elapsed elapsed)))]
+    (str "[fleur] " (str/join "   " parts))))
+
+(def ^:private permanent-ids
+  "Event ids that print a permanent (scrollback) line in progress mode; other
+   events only update the live line (or are file-only)."
+  #{::workflow-start ::step-done ::step-skipped ::image-pull ::tool-failed
+    ::workflow-done})
+
+(defn progress-handler
+  "A Telemere handler fn that renders live progress to `writer` (stderr).
+   0-arity (stop) clears any live line so the cursor ends on a clean row."
+  [writer]
+  (let [state (atom {:live? false})]
+    (fn
+      ([]
+       (when (:live? @state)
+         (.write writer erase-line)
+         (.flush writer)
+         (swap! state assoc :live? false)))
+      ([signal]
+       (let [now  (System/currentTimeMillis)
+             perm (when (permanent-ids (:id signal)) (force (:msg_ signal)))]
+         (when (:live? @state) (.write writer erase-line))
+         (when perm (.write writer (str "[fleur] " perm "\n")))
+         (swap! state update-progress signal now)
+         (let [s @state]
+           (if (or (:done? s) (nil? (:current s)))
+             (swap! state assoc :live? false)
+             (do (.write writer (render-live s now))
+                 (swap! state assoc :live? true))))
+         (.flush writer))))))
+
 (defn init!
   "Configure logging sinks. Options:
 
    - `:log-file`      path for the detailed EDN log (nil = no file sink)
    - `:console-level` min level for the stderr view (default `:info`)
    - `:file-level`    min level for the log file (default `:debug`)
+   - `:progress?`     when true, render a live progress display on stderr (a
+                      scrolling list of finished steps plus one live status line)
+                      instead of the plain per-event line view. The live view
+                      needs the :debug scatter events, so the global floor drops
+                      to :debug when it's on.
 
-   Replaces Telemere's default stdout handler with a stderr console handler and
-   (when `:log-file` is set) an EDN file handler. Idempotent enough for CLI use;
-   call once at startup."
+   Replaces Telemere's default stdout handler with a stderr console/progress
+   handler and (when `:log-file` is set) an EDN file handler. Idempotent enough
+   for CLI use; call once at startup."
   ([] (init! {}))
-  ([{:keys [log-file console-level file-level]
+  ([{:keys [log-file console-level file-level progress?]
      :or   {console-level :info file-level :debug}}]
    ;; The global floor must admit the lowest-level sink; per-handler :min-level
-   ;; then gates each sink independently. A file sink defaults to :debug, so the
-   ;; floor drops to :debug whenever a file is configured.
-   (t/set-min-level! (if log-file file-level console-level))
+   ;; then gates each sink independently. A file sink or the progress view both
+   ;; need :debug, so the floor drops to :debug when either is on.
+   (t/set-min-level! (if (or log-file progress?) :debug console-level))
    (t/remove-handler! :default/console)
-   (t/add-handler! :fleur/console
-                   (t/handler:console {:stream (io/writer System/err)
-                                       :output-fn human-output-fn})
-                   {:min-level console-level})
+   ;; Progress view and the plain line view are mutually exclusive on stderr, so
+   ;; output never doubles.
+   (if progress?
+     (t/add-handler! :fleur/progress
+                     (progress-handler (io/writer System/err))
+                     {:min-level :debug :async false})
+     (t/add-handler! :fleur/console
+                     (t/handler:console {:stream (io/writer System/err)
+                                         :output-fn human-output-fn})
+                     {:min-level console-level}))
    (when log-file
      (let [f (io/file log-file)]
        (io/make-parents f)                ; create the parent dir if it's missing
@@ -119,6 +210,11 @@
             {:level :debug :data data
              :msg (str "scatter " step ": " n " task" (when (not= 1 n) "s")
                        (when method (str " (" (clojure.core/name method) ")")))}))
+
+(defn scatter-progress! [{:keys [step done n] :as data}]
+  (t/event! ::scatter-progress
+            {:level :debug :data data
+             :msg (str "scatter " step ": " done "/" n)}))
 
 (defn scatter-done! [{:keys [step n run-msecs] :as data}]
   (t/event! ::scatter-done

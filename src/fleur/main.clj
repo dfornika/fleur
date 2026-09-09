@@ -24,10 +24,24 @@
     :parse-fn keyword
     :validate [#{:cwljava :clojure :schema-salad-tool} "must be cwljava, clojure, or schema-salad-tool"]]
    [nil  "--log-file PATH" "Write a detailed EDN run log to PATH"]
+   [nil  "--progress" "Force the live progress display on stderr"]
+   [nil  "--no-progress" "Disable the live progress display (use plain lines)"]
    ["-v" "--verbose" "Verbose run feedback on stderr (debug level)"]
    ["-q" "--quiet" "Quiet: only warnings and errors on stderr"]
    ["-h" "--help" "Show this help and exit"]
    ["-V" "--version" "Show version and exit"]])
+
+(defn- progress-enabled?
+  "Whether to show the live progress display. Conservative default: off unless
+   `--progress` is passed. (The JVM has no cheap stderr-isatty check and
+   `System/console` is nil whenever stdout is redirected — the common
+   `… > out.json` case — so we don't auto-enable; the user opts in.) `-q`/
+   `--no-progress` keep it off."
+  [options]
+  (boolean
+   (and (:progress options)
+        (not (:no-progress options))
+        (not (:quiet options)))))
 
 (defn- usage [summary]
   (str/join
@@ -92,7 +106,9 @@
             console-level (cond (:quiet options)   :warn
                                 (:verbose options) :debug
                                 :else              :info)]
-        (log/init! {:log-file (:log-file options) :console-level console-level})
+        (log/init! {:log-file (:log-file options)
+                    :console-level console-level
+                    :progress? (progress-enabled? options)})
         (try
           (let [result (run-document cwl-file job-file opts)]
             (log/shutdown!)                     ; flush stderr/file before the result
